@@ -1,0 +1,48 @@
+/* theme.css - Simplified for Tailwind-first approach */
+
+/* :root can hold very generic fallbacks or variables not covered by Tailwind, if any */
+:root {
+  /* Example: define a specific blue if Tailwind's isn't quite right, though usually not needed */
+  /* --custom-accent-blue: #3b82f6; */
+
+  /* Selection styles are good here if not using Tailwind's selection variant directly in body class */
+  --selection-bg: #3b82f6; /* blue-500 */
+  --selection-text: #FFFFFF;
+}
+
+/* Apply selection styles globally via ::selection pseudo-element */
+::selection {
+  background-color: var(--selection-bg);
+  color: var(--selection-text);
+}
+::-moz-selection { /* Firefox */
+  background-color: var(--selection-bg);
+  color: var(--selection-text);
+}
+
+
+/* Body transition - generally not needed if Tailwind handles transitions per-element */
+/* body {
+    transition: background-color 0.2s ease-out, color 0.2s ease-out; 
+} */
+
+/* 
+  Most color definitions previously here (like --background-body, --text-primary, etc.)
+  are now directly applied using Tailwind utility classes in the respective components
+  (e.g., bg-slate-950, text-slate-300). This aligns with the example's styling methodology.
+*/
+
+/* Custom scrollbar for small elements (if needed, otherwise global scrollbar from index.html applies) */
+.custom-scrollbar-small::-webkit-scrollbar {
+    width: 6px; 
+    height: 6px;
+}
+.custom-scrollbar-small::-webkit-scrollbar-thumb {
+    background-color: #4b5563; /* gray-600 or similar slate */
+    border-radius: 3px;
+    border: 1.5px solid #1e293b; /* slate-800 or similar track color */
+}
+.custom-scrollbar-small::-webkit-scrollbar-track {
+    background-color: #1e293b; /* slate-800 or similar */
+    border-radius: 3px;
+}

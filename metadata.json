@@ -1,0 +1,6 @@
+{
+  "name": "CodeTutor AI(Learn Coading)",
+  "description": "An interactive AI code tutor. Upload a code file (.py, .cpp, .c, .java, .rs) for analysis, or type a programming concept to get explanations, examples, practice questions, and guidance.",
+  "requestFramePermissions": [],
+  "prompt": ""
+}
