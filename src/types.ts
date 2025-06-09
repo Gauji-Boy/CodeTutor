@@ -1,5 +1,4 @@
 
-
 export interface AnalysisResult {
     topicExplanation: string;
     exampleCode: string;
@@ -24,38 +23,44 @@ export enum SupportedLanguage {
     JAVASCRIPT = "javascript",
     TYPESCRIPT = "typescript",
     GO = "go",
-    SWIFT = "swift",
-    KOTLIN = "kotlin",
-    PHP = "php",
-    RUBY = "ruby",
-    SCALA = "scala",
-    CSHARP = "csharp",
-    SHELL = "shell",
-    LUA = "lua", // Added Lua
+    HTML = "html",
+    CSS = "css",
+    JSON = "json",
+    MARKDOWN = "markdown",
+    SHELL = "shell", // For bash/sh scripts
+    LUA = "lua",
     UNKNOWN = "unknown"
 }
 
 export const LanguageExtensions: Record<string, SupportedLanguage> = {
     ".py": SupportedLanguage.PYTHON,
+    ".pyw": SupportedLanguage.PYTHON,
     ".cpp": SupportedLanguage.CPP,
+    ".hpp": SupportedLanguage.CPP,
+    ".cxx": SupportedLanguage.CPP,
+    ".hxx": SupportedLanguage.CPP,
+    ".cc": SupportedLanguage.CPP,
+    ".hh": SupportedLanguage.CPP,
     ".c": SupportedLanguage.C,
+    ".h": SupportedLanguage.C,
     ".java": SupportedLanguage.JAVA,
     ".rs": SupportedLanguage.RUST,
     ".js": SupportedLanguage.JAVASCRIPT,
+    ".jsx": SupportedLanguage.JAVASCRIPT, // Often used with React
+    ".mjs": SupportedLanguage.JAVASCRIPT,
     ".ts": SupportedLanguage.TYPESCRIPT,
-    ".tsx": SupportedLanguage.TYPESCRIPT, // Also for TypeScript
+    ".tsx": SupportedLanguage.TYPESCRIPT, // Often used with React
     ".go": SupportedLanguage.GO,
-    ".swift": SupportedLanguage.SWIFT,
-    ".kt": SupportedLanguage.KOTLIN,
-    ".kts": SupportedLanguage.KOTLIN, // Kotlin Script
-    ".php": SupportedLanguage.PHP,
-    ".rb": SupportedLanguage.RUBY,
-    ".scala": SupportedLanguage.SCALA,
-    ".sc": SupportedLanguage.SCALA, // Scala Script
-    ".cs": SupportedLanguage.CSHARP,
+    ".html": SupportedLanguage.HTML,
+    ".htm": SupportedLanguage.HTML,
+    ".css": SupportedLanguage.CSS,
+    ".json": SupportedLanguage.JSON,
+    ".md": SupportedLanguage.MARKDOWN,
+    ".markdown": SupportedLanguage.MARKDOWN,
     ".sh": SupportedLanguage.SHELL,
-    ".bash": SupportedLanguage.SHELL, // Bash scripts
-    ".lua": SupportedLanguage.LUA, // Added Lua
+    ".bash": SupportedLanguage.SHELL,
+    ".zsh": SupportedLanguage.SHELL,
+    ".lua": SupportedLanguage.LUA,
 };
 
 export const LanguageDisplayNames: Record<SupportedLanguage, string> = {
@@ -67,14 +72,12 @@ export const LanguageDisplayNames: Record<SupportedLanguage, string> = {
     [SupportedLanguage.JAVASCRIPT]: "JavaScript",
     [SupportedLanguage.TYPESCRIPT]: "TypeScript",
     [SupportedLanguage.GO]: "Go",
-    [SupportedLanguage.SWIFT]: "Swift",
-    [SupportedLanguage.KOTLIN]: "Kotlin",
-    [SupportedLanguage.PHP]: "PHP",
-    [SupportedLanguage.RUBY]: "Ruby",
-    [SupportedLanguage.SCALA]: "Scala",
-    [SupportedLanguage.CSHARP]: "C#",
+    [SupportedLanguage.HTML]: "HTML",
+    [SupportedLanguage.CSS]: "CSS",
+    [SupportedLanguage.JSON]: "JSON",
+    [SupportedLanguage.MARKDOWN]: "Markdown",
     [SupportedLanguage.SHELL]: "Shell Script",
-    [SupportedLanguage.LUA]: "Lua", // Added Lua
+    [SupportedLanguage.LUA]: "Lua",
     [SupportedLanguage.UNKNOWN]: "Unknown Language"
 };
 

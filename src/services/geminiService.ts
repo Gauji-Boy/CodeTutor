@@ -48,8 +48,6 @@ const analysisResultFieldCheck = (parsed: any): parsed is AnalysisResult => {
            typeof parsed.exampleCodeOutput === 'string' &&
            typeof parsed.practiceQuestion === 'string' &&
            typeof parsed.instructions === 'string';
-    // exampleDifficulty is optional in the type, so not strictly checked here for presence
-    // It will be added by the calling function.
 };
 
 const userSolutionAnalysisFieldCheck = (parsed: any): parsed is UserSolutionAnalysis => {
@@ -78,7 +76,7 @@ const getDifficultyGuidance = (languageName: string, difficulty: ExampleDifficul
 export const analyzeCodeWithGemini = async (
     codeContent: string,
     language: SupportedLanguage,
-    initialDifficulty: ExampleDifficulty // New parameter
+    initialDifficulty: ExampleDifficulty
 ): Promise<AnalysisResult> => {
     if (!ai) {
         throw new Error("Gemini AI client is not initialized. Ensure the API_KEY environment variable is set correctly.");
@@ -138,7 +136,7 @@ Respond ONLY with the valid JSON object described above, without any additional 
 export const analyzeConceptWithGemini = async (
     concept: string,
     language: SupportedLanguage,
-    initialDifficulty: ExampleDifficulty // New parameter
+    initialDifficulty: ExampleDifficulty
 ): Promise<AnalysisResult> => {
     if (!ai) {
         throw new Error("Gemini AI client is not initialized. Ensure the API_KEY environment variable is set correctly.");
@@ -307,5 +305,92 @@ Respond ONLY with the valid JSON object. Do not include any other text or explan
             }
         }
         throw new Error(`Failed to generate ${difficulty} example from AI. Please try again.`);
+    }
+};
+
+export const getMoreExplanationWithGemini = async (
+    currentExplanation: string,
+    language: SupportedLanguage,
+    originalInputContext: string, // Could be the original code or concept text
+    inputType: 'code' | 'concept' // To tailor the prompt slightly
+): Promise<string> => {
+    if (!ai) {
+        throw new Error("Gemini AI client is not initialized.");
+    }
+    const languageName = LanguageDisplayNames[language] || "the specified language";
+    const contextType = inputType === 'code' ? "the following code snippet" : "the concept";
+
+    const prompt = `
+You are an expert programming tutor. The user has received an initial explanation and wants more detail.
+The programming language context is ${languageName}.
+The original ${contextType} the user provided was:
+\`\`\`
+${originalInputContext}
+\`\`\`
+The current explanation they have is:
+"${currentExplanation}"
+
+Please elaborate further on this explanation. Provide a more in-depth, comprehensive explanation. 
+Focus on clarifying any potentially complex parts, offering more examples if suitable (briefly, not full code blocks), or discussing edge cases or related concepts. 
+Aim for a response that significantly expands on the existing explanation.
+Respond ONLY with the additional explanatory text, not in JSON format.
+`;
+
+    try {
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash-preview-04-17",
+            contents: prompt,
+            config: {
+                temperature: 0.5,
+            }
+        });
+        return response.text;
+    } catch (error) {
+        console.error("Error calling Gemini API for more explanation:", error);
+        throw new Error("Failed to get a more detailed explanation from AI.");
+    }
+};
+
+export const askFollowUpQuestionWithGemini = async (
+    userQuestion: string,
+    currentExplanation: string,
+    language: SupportedLanguage,
+    originalInputContext: string,
+    inputType: 'code' | 'concept'
+): Promise<string> => {
+    if (!ai) {
+        throw new Error("Gemini AI client is not initialized.");
+    }
+    const languageName = LanguageDisplayNames[language] || "the specified language";
+    const contextType = inputType === 'code' ? "the following code snippet" : "the concept";
+
+    const prompt = `
+You are an expert programming tutor. The user has a follow-up question regarding an explanation.
+The programming language context is ${languageName}.
+The original ${contextType} the user provided was:
+\`\`\`
+${originalInputContext}
+\`\`\`
+The main explanation provided to the user is:
+"${currentExplanation}"
+
+The user's follow-up question is: "${userQuestion}"
+
+Please answer the user's question directly and comprehensively, keeping in mind all the context provided (original input, main explanation, and the specific question).
+Respond ONLY with the answer to the question, not in JSON format.
+`;
+
+    try {
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash-preview-04-17",
+            contents: prompt,
+            config: {
+                temperature: 0.6,
+            }
+        });
+        return response.text;
+    } catch (error) {
+        console.error("Error calling Gemini API for follow-up question:", error);
+        throw new Error("Failed to get an answer from AI for your follow-up question.");
     }
 };

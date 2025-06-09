@@ -5,7 +5,7 @@ import { ExampleDifficulty, GlobalSettings } from '../types';
 const GLOBAL_SETTINGS_KEY = 'codeTutorGlobalSettings';
 
 const defaultSettings: GlobalSettings = {
-    preferredInitialDifficulty: 'intermediate',
+    preferredInitialDifficulty: 'easy', // Changed from 'intermediate' to 'easy'
 };
 
 export const useGlobalSettings = () => {

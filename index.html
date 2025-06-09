@@ -1,22 +1,12 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CodeTutor AI</title>
-    <script type="importmap">
-    {
-      "imports": {
-        "react": "https://esm.sh/react@^19.1.0",
-        "react-dom/": "https://esm.sh/react-dom@^19.1.0/",
-        "react/": "https://esm.sh/react@^19.1.0/",
-        "react-hot-toast": "https://esm.sh/react-hot-toast@^2.5.2",
-        "@google/genai": "https://esm.sh/@google/genai@^1.4.0"
-      }
-    }
-    </script>
     <script src="https://cdn.tailwindcss.com?plugins=forms,typography,aspect-ratio,container-queries"></script>
-    <link href="https://fonts.googleapis.com/icon?family=Material+Icons|Material+Icons+Outlined" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Lexend:wght@300;400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
@@ -24,84 +14,92 @@
     <!-- Prism.js CSS -->
     <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-okaidia.min.css" rel="stylesheet" />
     <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/line-numbers/prism-line-numbers.min.css" rel="stylesheet" />
-    <link href="/src/styles/theme.css" rel="stylesheet">
+    <link rel="stylesheet" href="./src/styles/theme.css">
 
     <style>
         body {
             font-family: 'Inter', sans-serif;
-            background-color: #0B1120; /* fallback slate-950 */
-            color: #cbd5e1; /* fallback slate-300 */
+            background-color: #111827; /* Tailwind gray-900 */
+            color: #E5E7EB; /* Tailwind gray-200 */
         }
         .font-lexend { font-family: 'Lexend', sans-serif; }
         .font-fira-code { font-family: 'Fira Code', monospace; }
 
-        /* Custom scrollbar styles */
+        .glassmorphism {
+            background: rgba(31, 41, 55, 0.6); /* bg-gray-800 with 0.6 opacity */
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        /* Custom scrollbar styles (can be kept or adjusted) */
         ::-webkit-scrollbar {
             width: 8px;
             height: 8px;
         }
         ::-webkit-scrollbar-track {
-            background: #1e293b; /* slate-800 */
+            background: #1f2937; /* gray-800 */
         }
         ::-webkit-scrollbar-thumb {
-            background: #3b82f6; /* blue-500 */
+            background: #4f46e5; /* indigo-600 */
             border-radius: 4px;
         }
         ::-webkit-scrollbar-thumb:hover {
-            background: #2563eb; /* blue-600 */
+            background: #4338ca; /* indigo-700 */
         }
-        .custom-scrollbar-small::-webkit-scrollbar {
-            width: 6px; 
-            height: 6px;
-        }
-        .custom-scrollbar-small::-webkit-scrollbar-thumb {
-            background-color: #4b5563; /* gray-600 */
-            border-radius: 3px;
-            border: 1.5px solid #1e293b; /* slate-800 */
-        }
-        .custom-scrollbar-small::-webkit-scrollbar-track {
-            background-color: #1e293b; /* slate-800 */
-            border-radius: 3px;
-        }
-        /* Ensure Prism background is consistent */
+        
+        /* Ensure Prism background is dark enough if not overridden by theme.css */
         pre[class*="language-"] {
-            background: #0f172a !important; /* slate-900 or your chosen code block bg */
-             border: 1px solid #334155; /* slate-700 */
+            background: #1f2937 !important; /* gray-800 */
+            border-color: #374151; /* gray-700 */
+            border-radius: 0.375rem; /* rounded-md */
         }
+        
+        /* Styles for react-simple-code-editor */
+        .code-editor-textarea, .code-editor-pre {
+             font-family: 'Fira Code', monospace !important;
+             font-size: 0.875rem !important; /* text-sm */
+             line-height: 1.5rem !important; /* leading-relaxed equivalent */
+             caret-color: #d1d5db; /* gray-300 */
+        }
+         .code-editor-textarea {
+            outline: none !important;
+            background-color: transparent !important;
+            border: none !important;
+         }
     </style>
+<script type="importmap">
+{
+  "imports": {
+    "react-dom/": "https://esm.sh/react-dom@^19.1.0/",
+    "@google/genai": "https://esm.sh/@google/genai@^1.4.0",
+    "react/": "https://esm.sh/react@^19.1.0/",
+    "react": "https://esm.sh/react@^19.1.0",
+    "react-hot-toast": "https://esm.sh/react-hot-toast@^2.5.2",
+    "react-simple-code-editor": "https://esm.sh/react-simple-code-editor@^0.14.1"
+  }
+}
+</script>
 <link rel="stylesheet" href="/index.css">
 </head>
-<body class="bg-slate-950 text-slate-300 antialiased selection:bg-blue-500 selection:text-white">
+<body class="bg-gray-900 text-gray-200 antialiased selection:bg-indigo-500 selection:text-white">
     <div id="root"></div>
 
     <!-- Prism.js Core -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js"></script>
-    <!-- Prism.js Languages (explicitly loaded) -->
+    <!-- Preload common languages -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-clike.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-javascript.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-java.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-c.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-cpp.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-java.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-rust.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-javascript.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-typescript.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-jsx.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-tsx.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-go.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-swift.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-kotlin.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-php.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-ruby.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-scala.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-csharp.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-lua.min.js"></script>
-    
-    <!-- Prism.js Line Numbers Plugin (optional) -->
+    <!-- Autoloader for other languages -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+    <!-- Prism.js Line Numbers Plugin (optional, used by CodeBlock styling) -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/line-numbers/prism-line-numbers.min.js"></script>
     
     <!-- Main application script -->
-    <script type="module" src="/src/index.tsx" defer></script>
+    <script type="module" src="./src/index.tsx" defer></script>
 <script type="module" src="/index.tsx"></script>
 </body>
 </html>
