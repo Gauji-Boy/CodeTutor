@@ -13,14 +13,12 @@ import {
     ExampleDifficultyDisplayNames
 } from '../types'; 
 import { LanguageDisplayNames } from '../types'; 
-// Card component might not be used directly if sections are part of a larger panel
-// import { Card } from './Card'; 
 import { TerminalOutput } from './TerminalOutput';
 import { 
     checkUserSolutionWithGemini, 
     getExampleByDifficulty,
-    getMoreExplanationWithGemini,
-    askFollowUpQuestionWithGemini
+    askFollowUpQuestionWithGemini,
+    getAdditionalExplanation
 } from '../services/geminiService'; 
 import { ErrorMessage } from './ErrorMessage'; 
 import { CodeBlock, getPrismLanguageString } from './CodeBlock'; 
@@ -32,6 +30,8 @@ interface ResultDisplayProps {
     originalInputContext: string; 
     originalInputType: 'code' | 'concept';
 }
+
+const MAX_ELABORATION_LEVELS = 2;
 
 const escapeHtml = (unsafe: string): string => {
     if (typeof unsafe !== 'string') return '';
@@ -64,8 +64,13 @@ export const ResultDisplay: React.FC<ResultDisplayProps> = ({
     const [solutionError, setSolutionError] = useState<string | null>(null);
 
     const [currentTopicExplanation, setCurrentTopicExplanation] = useState<string>(result.topicExplanation);
-    const [isFetchingMoreExplanation, setIsFetchingMoreExplanation] = useState<boolean>(false);
-    const [moreExplanationError, setMoreExplanationError] = useState<string | null>(null);
+    
+    // State for tiered elaborations
+    const [elaborationLevel, setElaborationLevel] = useState<number>(0);
+    const [additionalTopicExplanations, setAdditionalTopicExplanations] = useState<string[]>([]);
+    const [isFetchingAdditionalExplanation, setIsFetchingAdditionalExplanation] = useState<boolean>(false);
+    const [additionalExplanationError, setAdditionalExplanationError] = useState<string | null>(null);
+
     const [followUpQuestionText, setFollowUpQuestionText] = useState<string>('');
     const [followUpAnswer, setFollowUpAnswer] = useState<string | null>(null);
     const [isAskingFollowUp, setIsAskingFollowUp] = useState<boolean>(false);
@@ -74,7 +79,7 @@ export const ResultDisplay: React.FC<ResultDisplayProps> = ({
     useEffect(() => {
         setCurrentExampleCode(result.exampleCode);
         setCurrentExampleCodeOutput(result.exampleCodeOutput);
-        setSelectedExampleDifficulty(difficultyOfProvidedExample); 
+        setSelectedExampleDifficulty(result.exampleDifficulty || difficultyOfProvidedExample); 
         setShowExampleOutput(false);
         setIsExampleLoading(false);
         setExampleError(null);
@@ -82,8 +87,13 @@ export const ResultDisplay: React.FC<ResultDisplayProps> = ({
         setUserSolutionAnalysis(null);
         setSolutionError(null);
         setCurrentTopicExplanation(result.topicExplanation);
-        setIsFetchingMoreExplanation(false);
-        setMoreExplanationError(null);
+        
+        // Reset elaborations on new result
+        setElaborationLevel(0);
+        setAdditionalTopicExplanations([]);
+        setIsFetchingAdditionalExplanation(false);
+        setAdditionalExplanationError(null);
+
         setFollowUpQuestionText('');
         setFollowUpAnswer(null);
         setIsAskingFollowUp(false);
@@ -123,7 +133,15 @@ export const ResultDisplay: React.FC<ResultDisplayProps> = ({
 
         try {
             if (!language || language === SupportedLanguage.UNKNOWN) throw new Error("Language not identified, cannot check solution.");
-            const analysis = await checkUserSolutionWithGemini(practiceSolution, language, result.practiceQuestion, result.topicExplanation);
+            if (!result.instructions) throw new Error("Instructions for the practice question are missing, cannot verify solution accurately.");
+
+            const analysis = await checkUserSolutionWithGemini(
+                practiceSolution, 
+                language, 
+                result.practiceQuestion, 
+                result.topicExplanation,
+                result.instructions // Pass the instructions
+            );
             setUserSolutionAnalysis(analysis);
             toast.success("AI feedback on your solution received!");
         } catch (err) {
@@ -132,24 +150,36 @@ export const ResultDisplay: React.FC<ResultDisplayProps> = ({
         } finally {
             setIsCheckingSolution(false);
         }
-    }, [practiceSolution, language, result.practiceQuestion, result.topicExplanation]);
+    }, [practiceSolution, language, result.practiceQuestion, result.topicExplanation, result.instructions]);
 
-    const handleFetchMoreExplanation = useCallback(async () => {
-        if (isFetchingMoreExplanation) return;
-        setIsFetchingMoreExplanation(true);
-        setMoreExplanationError(null);
-        toast("Fetching more details...", { icon: '⏳' });
+    const handleFetchAdditionalExplanation = useCallback(async () => {
+        if (isFetchingAdditionalExplanation || elaborationLevel >= MAX_ELABORATION_LEVELS) return;
+        
+        const nextLevel = elaborationLevel + 1;
+        setIsFetchingAdditionalExplanation(true);
+        setAdditionalExplanationError(null);
+        toast(`Getting more details (Level ${nextLevel})...`, { icon: '💡' });
+        
         try {
-            const moreDetails = await getMoreExplanationWithGemini(currentTopicExplanation, language, originalInputContext, originalInputType);
-            setCurrentTopicExplanation(prev => prev + "\n\n**Further Details:**\n" + moreDetails);
-            toast.success("Explanation expanded!");
+            const moreDetails = await getAdditionalExplanation(
+                currentTopicExplanation,
+                language,
+                originalInputContext,
+                originalInputType,
+                nextLevel 
+            );
+            setAdditionalTopicExplanations(prev => [...prev, moreDetails]);
+            setElaborationLevel(nextLevel);
+            toast.success(`More details (Level ${nextLevel}) loaded!`);
         } catch (err) {
             const msg = err instanceof Error ? err.message : "Could not fetch more details.";
-            setMoreExplanationError(msg); toast.error(msg);
+            setAdditionalExplanationError(msg);
+            toast.error(msg);
         } finally {
-            setIsFetchingMoreExplanation(false);
+            setIsFetchingAdditionalExplanation(false);
         }
-    }, [currentTopicExplanation, language, originalInputContext, originalInputType, isFetchingMoreExplanation]);
+    }, [currentTopicExplanation, language, originalInputContext, originalInputType, elaborationLevel, isFetchingAdditionalExplanation]);
+
 
     const handleAskFollowUpQuestion = useCallback(async () => {
         if (!followUpQuestionText.trim() || isAskingFollowUp) return;
@@ -181,54 +211,89 @@ export const ResultDisplay: React.FC<ResultDisplayProps> = ({
         return escapeHtml(code); 
     };
     
-    // Helper for rendering paragraph text
     const renderParagraphs = (text: string) => {
-        return text.split('\n').filter(p => p.trim() !== "").map((paragraph, index) => (
-            <p key={index} className="mb-2 last:mb-0">{paragraph.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')}</p>
+      if (!text) return null;
+      return text
+        .split('\n')
+        .map(line => line.trim())
+        .filter(line => line.length > 0)
+        .map((paragraph, index) => (
+            <p key={index} 
+               dangerouslySetInnerHTML={{ 
+                   __html: paragraph
+                    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') 
+                    .replace(/\*(.*?)\*/g, '<em>$1</em>')       
+               }}>
+            </p>
         ));
     };
 
+    const elaborationButtonText = elaborationLevel === 0 ? "Elaborate Further" : "Elaborate Even More";
+
     return (
         <div className="w-full text-left space-y-6 sm:space-y-8">
-            {/* Topic Explanation Section */}
             <section aria-labelledby="topic-explanation-title">
-                <h2 id="topic-explanation-title" className="text-xl font-semibold text-white mb-3 flex items-center">
-                    <span className="material-icons text-indigo-400 mr-2">lightbulb</span>Topic Explanation
-                </h2>
-                <div className="text-sm text-gray-300 leading-relaxed space-y-2 prose prose-sm prose-invert max-w-none">
+                <h3 id="topic-explanation-title" className="text-lg font-semibold text-white mb-3 flex items-center">
+                    <span className="material-icons-outlined text-indigo-400 mr-2 text-xl">lightbulb</span>Topic Explanation
+                </h3>
+                <div className="text-sm text-gray-300 leading-relaxed prose prose-sm prose-invert max-w-none">
                    {renderParagraphs(currentTopicExplanation)}
                 </div>
-                <div className="mt-4 pt-4 border-t border-gray-700 space-y-4">
-                    <div>
-                        <button
-                            type="button" onClick={handleFetchMoreExplanation} disabled={isFetchingMoreExplanation}
-                            className="w-full sm:w-auto bg-gray-700 hover:bg-gray-600 text-gray-300 font-medium py-2 px-3.5 rounded-lg flex items-center justify-center gap-1.5 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-gray-800 disabled:opacity-60 disabled:cursor-wait text-xs shadow"
-                        >
-                            {isFetchingMoreExplanation ? <div className="w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin"></div> : <span className="material-icons text-base">expand_more</span>}
-                            {isFetchingMoreExplanation ? 'Loading More...' : 'Show More Explanation'}
-                        </button>
-                        {moreExplanationError && <div className="mt-2"><ErrorMessage message={moreExplanationError}/></div>}
+
+                {/* Additional Explanation Area */}
+                {additionalTopicExplanations.map((explanation, index) => (
+                    <div key={index} className="mt-4 pt-3 border-t border-gray-700/50">
+                        <h4 className="text-sm font-semibold text-gray-100 mb-2 flex items-center gap-1">
+                             <span className="material-icons-outlined text-sm text-indigo-400">subdirectory_arrow_right</span>
+                             Further Elaboration (Level {index + 1}):
+                        </h4>
+                        <div className="text-sm text-gray-300 leading-relaxed prose prose-sm prose-invert max-w-none">
+                            {renderParagraphs(explanation)}
+                        </div>
                     </div>
+                ))}
+
+                {elaborationLevel < MAX_ELABORATION_LEVELS && !isFetchingAdditionalExplanation && !additionalExplanationError && (
+                     <button
+                        type="button"
+                        onClick={handleFetchAdditionalExplanation}
+                        className="mt-3 bg-gray-600 hover:bg-gray-500 text-white font-medium py-1.5 px-3 rounded-md flex items-center justify-center gap-1 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1 focus:ring-offset-gray-800 text-xs shadow"
+                    >
+                        <span className="material-icons-outlined text-sm">read_more</span>
+                        {elaborationButtonText}
+                    </button>
+                )}
+                {isFetchingAdditionalExplanation && (
+                    <div className="mt-3 flex items-center text-xs text-gray-400">
+                        <div className="w-3.5 h-3.5 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin mr-2"></div>
+                        <span>Fetching more details (Level {elaborationLevel + 1})...</span>
+                    </div>
+                )}
+                {additionalExplanationError && !isFetchingAdditionalExplanation && <div className="mt-3"><ErrorMessage message={additionalExplanationError}/></div>}
+
+
+                {/* Follow-up Question Area */}
+                <div className="mt-4 pt-4 border-t border-gray-700/70 space-y-3">
                     <div>
-                        <label htmlFor="follow-up-question" className="block text-xs font-medium text-gray-400 mb-1">Ask a Follow-up Question:</label>
+                        <label htmlFor="follow-up-question" className="block text-xs font-medium text-gray-400 mb-1.5">Ask a Follow-up Question:</label>
                         <textarea
-                            id="follow-up-question" rows={3} value={followUpQuestionText} onChange={(e) => setFollowUpQuestionText(e.target.value)}
+                            id="follow-up-question" rows={2} value={followUpQuestionText} onChange={(e) => setFollowUpQuestionText(e.target.value)}
                             placeholder="Type your question about this topic..."
-                            className="w-full bg-gray-700/80 border border-gray-600 text-gray-200 rounded-lg p-2.5 text-xs focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 placeholder-gray-500 transition-colors custom-scrollbar-small"
+                            className="w-full bg-gray-700/60 border border-gray-600 text-gray-200 rounded-md p-2 text-xs focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 placeholder-gray-500 transition-colors custom-scrollbar-small"
                             disabled={isAskingFollowUp}
                         />
                         <button
                             type="button" onClick={handleAskFollowUpQuestion} disabled={isAskingFollowUp || !followUpQuestionText.trim()}
-                            className="mt-2 w-full sm:w-auto bg-indigo-500 hover:bg-indigo-600 text-white font-medium py-2 px-3.5 rounded-lg flex items-center justify-center gap-1.5 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-gray-800 disabled:bg-gray-600 disabled:text-gray-400 text-xs shadow"
+                            className="mt-2 bg-gray-600 hover:bg-gray-500 text-white font-medium py-1.5 px-3 rounded-md flex items-center justify-center gap-1 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1 focus:ring-offset-gray-800 disabled:bg-gray-700 disabled:text-gray-500 text-xs shadow"
                         >
-                             {isAskingFollowUp ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <span className="material-icons text-base">question_answer</span>}
-                            {isAskingFollowUp ? 'Asking AI...' : 'Ask AI'}
+                             {isAskingFollowUp ? <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <span className="material-icons-outlined text-sm">question_answer</span>}
+                            {isAskingFollowUp ? 'Asking...' : 'Ask AI'}
                         </button>
                         {followUpError && <div className="mt-2"><ErrorMessage message={followUpError}/></div>}
                         {followUpAnswer && !isAskingFollowUp && (
-                            <div className="mt-3 p-3 bg-gray-700/50 rounded-lg border border-gray-600/70">
+                            <div className="mt-3 p-3 bg-gray-700/40 rounded-lg border border-gray-600/50">
                                 <h5 className="text-xs font-semibold text-gray-100 mb-1.5 flex items-center gap-1">
-                                    <span className="material-icons text-base text-indigo-400">assistant</span>AI's Answer:
+                                    <span className="material-icons-outlined text-sm text-indigo-400">assistant</span>AI's Answer:
                                 </h5>
                                 <div className="text-xs text-gray-300 leading-relaxed whitespace-pre-wrap prose prose-xs prose-invert max-w-none">
                                    {renderParagraphs(followUpAnswer)}
@@ -239,17 +304,19 @@ export const ResultDisplay: React.FC<ResultDisplayProps> = ({
                 </div>
             </section>
 
+            <div className="border-t border-gray-700/60"></div>
+
             {/* Example Code Section */}
             <section aria-labelledby="example-code-title">
-                <h2 id="example-code-title" className="text-xl font-semibold text-white mb-3 flex items-center">
-                    <span className="material-icons text-indigo-400 mr-2">code_blocks</span>Example Code
-                </h2>
+                <h3 id="example-code-title" className="text-lg font-semibold text-white mb-3 flex items-center">
+                    <span className="material-icons-outlined text-indigo-400 mr-2 text-xl">code_blocks</span>Example Code
+                </h3>
                 <div className="flex flex-wrap items-center gap-2 mb-3">
                     <span className="text-xs text-gray-400 mr-1">Difficulty:</span>
                     {ExampleDifficultyLevels.map(level => (
                         <button
                             key={level} type="button" onClick={() => handleDifficultyChange(level)} disabled={isExampleLoading}
-                            className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors focus:outline-none focus:ring-2 ring-offset-1 ring-offset-gray-800 shadow-sm
+                            className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors focus:outline-none focus:ring-1 ring-offset-1 ring-offset-gray-800 shadow-sm
                                 ${selectedExampleDifficulty === level ? 'bg-indigo-600 text-white hover:bg-indigo-700 focus:ring-indigo-500' : 'bg-gray-700 hover:bg-gray-600 text-gray-300 focus:ring-indigo-600'}
                                 ${isExampleLoading && selectedExampleDifficulty !== level ? 'cursor-not-allowed opacity-60' : ''}
                                 ${isExampleLoading && selectedExampleDifficulty === level ? 'animate-pulse' : ''}`}
@@ -261,7 +328,7 @@ export const ResultDisplay: React.FC<ResultDisplayProps> = ({
                 </div>
 
                 {isExampleLoading && (
-                    <div className="flex items-center justify-center p-3 bg-gray-700/30 rounded-md my-2 text-xs">
+                    <div className="flex items-center justify-center p-3 bg-gray-700/20 rounded-md my-2 text-xs">
                         <div className="w-3.5 h-3.5 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin mr-2"></div>
                         <span className="text-gray-400">Generating {ExampleDifficultyDisplayNames[selectedExampleDifficulty]} example...</span>
                     </div>
@@ -274,11 +341,11 @@ export const ResultDisplay: React.FC<ResultDisplayProps> = ({
                         <div className="mt-3">
                             <button
                                 type="button" onClick={() => setShowExampleOutput(!showExampleOutput)}
-                                className="bg-gray-700 hover:bg-gray-600 text-gray-300 border border-gray-600 hover:border-gray-500 py-1.5 px-3 rounded-md text-xs flex items-center gap-1 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 ring-offset-1 ring-offset-gray-800 shadow"
+                                className="bg-gray-700 hover:bg-gray-600 text-gray-300 border border-gray-600 hover:border-gray-500 py-1.5 px-3 rounded-md text-xs flex items-center gap-1 transition-colors focus:outline-none focus:ring-1 focus:ring-indigo-500 ring-offset-1 ring-offset-gray-800 shadow"
                                 aria-expanded={showExampleOutput} aria-controls="example-output-terminal"
                             >
                                 {showExampleOutput ? 'Hide' : 'Show'} Output
-                                <span className={`material-icons text-base transition-transform duration-200 ${showExampleOutput ? 'rotate-180' : ''}`}>expand_more</span>
+                                <span className={`material-icons-outlined text-base transition-transform duration-200 ${showExampleOutput ? 'rotate-180' : ''}`}>expand_more</span>
                             </button>
                             {showExampleOutput && <TerminalOutput output={currentExampleCodeOutput} title="Example Code Output" />}
                         </div>
@@ -286,54 +353,64 @@ export const ResultDisplay: React.FC<ResultDisplayProps> = ({
                 )}
             </section>
 
+            <div className="border-t border-gray-700/60"></div>
+
             {/* Practice Question Section */}
             <section aria-labelledby="practice-question-title">
-                <h2 id="practice-question-title" className="text-xl font-semibold text-white mb-3 flex items-center">
-                    <span className="material-icons text-indigo-400 mr-2">quiz</span>Practice Question
-                </h2>
-                <p className="text-sm text-gray-300 mb-3 leading-relaxed prose prose-sm prose-invert max-w-none">{result.practiceQuestion}</p>
+                <h3 id="practice-question-title" className="text-lg font-semibold text-white mb-3 flex items-center">
+                    <span className="material-icons-outlined text-indigo-400 mr-2 text-xl">quiz</span>Practice Question
+                </h3>
+                <div className="text-sm text-gray-300 mb-4 leading-relaxed prose prose-sm prose-invert max-w-none">
+                    {renderParagraphs(result.practiceQuestion)}
+                </div>
                 
                 <div>
-                    <label htmlFor="practice-solution" className="block text-sm font-medium text-gray-400 mb-1">
+                    <label htmlFor="practice-solution" className="block text-sm font-medium text-gray-400 mb-1.5">
                         Your Solution ({LanguageDisplayNames[language || SupportedLanguage.UNKNOWN]}):
                     </label>
-                    <div className="bg-gray-800 border border-gray-600 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-indigo-500 focus-within:border-indigo-500 custom-scrollbar-small shadow-sm">
+                    <div className="bg-gray-700/60 border border-gray-600 rounded-md overflow-hidden focus-within:ring-1 focus-within:ring-indigo-500 focus-within:border-indigo-500 custom-scrollbar-small shadow-sm">
                         <Editor
                             value={practiceSolution} onValueChange={code => setPracticeSolution(code)}
-                            highlight={robustPracticeSolutionHighlight} padding={12} 
-                            textareaClassName="code-editor-textarea !text-gray-200" preClassName="code-editor-pre"
-                            className="font-fira-code text-sm min-h-[180px] max-h-[350px] overflow-y-auto"
+                            highlight={robustPracticeSolutionHighlight} padding={12}
+                            textareaClassName="code-editor-textarea !text-gray-200 !font-fira-code" preClassName="code-editor-pre !font-fira-code"
+                            className="text-xs min-h-[160px] max-h-[320px] overflow-y-auto"
                             disabled={isCheckingSolution}
                             placeholder={`// Enter your ${LanguageDisplayNames[language || SupportedLanguage.UNKNOWN]} code here...`}
                             aria-label="Practice solution input area"
                         />
                     </div>
                      <div className="mt-3 flex flex-col sm:flex-row justify-end items-center gap-2.5">
-                        {isCheckingSolution && <div className="w-5 h-5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin order-first sm:order-none"></div>}
+                        {isCheckingSolution && <div className="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin order-first sm:order-none"></div>}
                         <button
                             type="button" onClick={handleCheckSolution} disabled={isCheckSolutionDisabled}
-                            className="w-full sm:w-auto bg-indigo-500 hover:bg-indigo-600 text-white font-medium py-2 px-4 rounded-lg flex items-center justify-center gap-1.5 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 ring-offset-2 ring-offset-gray-800 disabled:bg-gray-600 disabled:text-gray-400 text-sm shadow"
+                            className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2 px-4 rounded-md flex items-center justify-center gap-1.5 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 ring-offset-1 ring-offset-gray-800 disabled:bg-gray-600 disabled:text-gray-400 text-xs shadow"
                         >
-                            <span className="material-icons text-base">{isCheckingSolution ? 'hourglass_empty' : 'check_circle'}</span>
+                            <span className="material-icons-outlined text-base">{isCheckingSolution ? 'hourglass_empty' : 'check_circle'}</span>
                             {isCheckingSolution ? 'Checking...' : "Check Solution"}
                         </button>
                     </div>
 
-                    {solutionError && <div className="mt-2"><ErrorMessage message={solutionError} /></div>}
+                    {solutionError && <div className="mt-2.5"><ErrorMessage message={solutionError} /></div>}
                     
                     {userSolutionAnalysis && !isCheckingSolution && (
-                        <div className="mt-4 p-3.5 bg-gray-700/40 rounded-lg border border-gray-600/60 shadow-md">
+                        <div className="mt-4 p-3.5 bg-gray-700/30 rounded-lg border border-gray-600/50 shadow-md">
                             <h4 className="text-sm font-semibold text-gray-100 mb-2 flex items-center gap-1.5">
-                                <span className="material-icons text-lg text-indigo-400">comment</span>AI Feedback:
+                                <span className="material-icons-outlined text-base text-indigo-400">comment</span>AI Feedback:
                             </h4>
                             {typeof userSolutionAnalysis.isCorrect === 'boolean' && (
                                  <div className={`mb-2 p-2 rounded-md text-xs font-medium flex items-center border ${
-                                     userSolutionAnalysis.isCorrect ? 'bg-indigo-600/15 border-indigo-600/30 text-indigo-300' : 'bg-yellow-600/15 border-yellow-600/30 text-yellow-300'
+                                     userSolutionAnalysis.isCorrect 
+                                     ? 'bg-indigo-600/10 border-indigo-600/25 text-indigo-300' 
+                                     : 'bg-red-700/20 border-red-600/40 text-red-300' // Changed from yellow to red
                                  }`}>
-                                   <span className={`material-icons mr-1.5 text-base ${userSolutionAnalysis.isCorrect ? 'text-indigo-400' : 'text-yellow-400'}`}>
-                                       {userSolutionAnalysis.isCorrect ? 'verified' : 'tips_and_updates'}
+                                   <span className={`material-icons-outlined mr-1.5 text-sm ${
+                                       userSolutionAnalysis.isCorrect 
+                                       ? 'text-indigo-400' 
+                                       : 'text-red-400' // Changed icon color
+                                       }`}>
+                                       {userSolutionAnalysis.isCorrect ? 'verified' : 'error_outline'} {/* Changed icon */}
                                     </span>
-                                    {userSolutionAnalysis.isCorrect ? 'Assessment: Looks Correct!' : 'Assessment: Needs Revision.'}
+                                    {userSolutionAnalysis.isCorrect ? 'AI Assessment: Looks Correct!' : 'AI Assessment: Needs Revision.'}
                                 </div>
                             )}
                             <TerminalOutput output={userSolutionAnalysis.predictedOutput} title="Predicted Output of Your Solution" />
@@ -348,19 +425,28 @@ export const ResultDisplay: React.FC<ResultDisplayProps> = ({
                 </div>
             </section>
 
-            {/* Instructions Section */}
-            <section aria-labelledby="instructions-title">
-                 <h2 id="instructions-title" className="text-xl font-semibold text-white mb-3 flex items-center">
-                    <span className="material-icons text-indigo-400 mr-2">rule</span>Instructions to Solve
-                </h2>
-                 <ul className="list-disc list-inside text-sm text-gray-300 space-y-1.5 leading-relaxed prose prose-sm prose-invert max-w-none">
-                    {result.instructions.split('\n').map((line, index) => {
-                        const trimmedLine = line.trim().replace(/^(\d+\.|-|\*|\u2022|Step\s*\d*:)\s*/i, '');
-                        if (trimmedLine) return <li key={index} className="pl-1">{trimmedLine}</li>; 
-                        return null;
-                    })}
-                </ul>
-            </section>
+             {result.instructions && result.instructions.trim() !== "" && (
+                <>
+                    <div className="border-t border-gray-700/60"></div>
+                    <section aria-labelledby="instructions-title">
+                        <h3 id="instructions-title" className="text-lg font-semibold text-white mb-3 flex items-center">
+                            <span className="material-icons-outlined text-indigo-400 mr-2 text-xl">integration_instructions</span>Instructions to Solve
+                        </h3>
+                        <ul className="list-none text-sm text-gray-300 space-y-2 leading-relaxed">
+                            {result.instructions.split('\n').map((line, index) => {
+                                const trimmedLine = line.trim().replace(/^(\d+\.|-|\*|\u2022|Step\s*\d*:)\s*/i, '');
+                                if (trimmedLine) return (
+                                    <li key={index} className="flex items-start pl-1">
+                                        <span className="material-icons-outlined text-indigo-500 text-base mr-2.5 mt-px flex-shrink-0">chevron_right</span>
+                                        <span>{trimmedLine}</span>
+                                    </li>
+                                ); 
+                                return null;
+                            })}
+                        </ul>
+                    </section>
+                </>
+            )}
         </div>
     );
 };

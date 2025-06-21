@@ -1,6 +1,6 @@
 {
-  "name": "CodeTutor AI(Learn Coading)",
-  "description": "An interactive AI code tutor. Upload a code file (.py, .cpp, .c, .java, .rs) for analysis, or type a programming concept to get explanations, examples, practice questions, and guidance.",
+  "name": "Copy of CodeTutor AI (Main)",
+  "description": "An AI-powered dashboard to analyze code by uploading files, pasting snippets, or explaining concepts. View recent activity and analysis summaries.",
   "requestFramePermissions": [],
   "prompt": ""
 }

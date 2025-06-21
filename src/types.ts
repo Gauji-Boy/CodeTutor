@@ -102,3 +102,21 @@ export interface ExampleCodeData {
 export interface GlobalSettings {
     preferredInitialDifficulty: ExampleDifficulty;
 }
+
+// Activity Log
+export type ActivityType = 'file_analysis' | 'concept_explanation' | 'paste_analysis' | 'settings_update';
+
+export interface ActivityItem {
+    id: string;
+    type: ActivityType;
+    title: string; // e.g., "my_script.py", "Concept: Python Decorators", "Settings Changed"
+    timestamp: Date;
+    summary?: string; // e.g., "5 suggestions found", "Difficulty set to Hard"
+    icon: string; // Material icon name
+    colorClass: string; // Tailwind color class for icon
+    language?: SupportedLanguage; // Optional: To track language for relevant activities
+    
+    // Fields for re-loading analysis:
+    originalInput?: string; // The original code, concept text, or pasted code
+    analysisResult?: AnalysisResult | null; // The actual result from Gemini
+}

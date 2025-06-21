@@ -8,7 +8,7 @@ interface FileUploadProps {
     selectedFile: File | null;
     selectedLanguage: SupportedLanguage | null;
     onLanguageChange: (language: SupportedLanguage) => void;
-    onSubmit: () => void;
+    onSubmit: () => void; // This prop is still passed but the button is removed from render
     isLoading: boolean;
 }
 
@@ -17,7 +17,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({
     selectedFile,
     selectedLanguage,
     onLanguageChange,
-    onSubmit,
+    // onSubmit, // Button is removed from this component
     isLoading,
 }) => {
     const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -41,7 +41,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({
     const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
         event.preventDefault(); event.stopPropagation(); if (isLoading) return;
         const dropZone = event.currentTarget;
-        dropZone?.classList.remove('border-indigo-500', 'bg-gray-700/50');
+        dropZone?.classList.remove('border-indigo-500', 'bg-gray-700/30');
         dropZone?.classList.add('border-gray-600', 'bg-transparent');
         if (event.dataTransfer.files && event.dataTransfer.files[0]) {
             onFileSelect(event.dataTransfer.files[0]);
@@ -51,31 +51,29 @@ export const FileUpload: React.FC<FileUploadProps> = ({
     const handleDragOver = (event: React.DragEvent<HTMLDivElement>) => {
         event.preventDefault(); event.stopPropagation(); if (isLoading) return;
         const dropZone = event.currentTarget;
-        dropZone?.classList.add('border-indigo-500', 'bg-gray-700/50');
+        dropZone?.classList.add('border-indigo-500', 'bg-gray-700/30');
         dropZone?.classList.remove('border-gray-600', 'bg-transparent');
     };
 
     const handleDragLeave = (event: React.DragEvent<HTMLDivElement>) => {
         event.preventDefault(); event.stopPropagation();
         const dropZone = event.currentTarget;
-        dropZone?.classList.remove('border-indigo-500', 'bg-gray-700/50');
+        dropZone?.classList.remove('border-indigo-500', 'bg-gray-700/30');
         dropZone?.classList.add('border-gray-600', 'bg-transparent');
     };
-    
-    const isSubmitDisabled = isLoading || !selectedFile || !selectedLanguage || selectedLanguage === LangEnum.UNKNOWN;
-    // Using the extensive list from the example for display purposes
-    const displayFileExtensions = "PY, PYW, CPP, HPP, CXX, CC, HH, C, H, JAVA, RB, GO, JS, JSX, TS, TSX, HTML, CSS, PHP, SWIFT, KOTLIN, RUST, SCALA, PERL, LUA, SQL, JSON, MD, MARKDOWN, SH, BASH, ZSH, Fish, Max 1MB.";
+        
+    const displayFileExtensionsShort = "PY, JS, TS, Java, C++, HTML, CSS, etc.";
 
     return (
-        <div className="flex flex-col flex-grow space-y-4">
+        <div className="flex flex-col space-y-3 pt-3 border-t border-gray-700/70">
             <div>
-                <h3 className="text-md font-medium text-white mb-2">Upload Your Code</h3>
-                <label htmlFor={fileInputId} className="block text-sm text-gray-400 mb-1 cursor-pointer">
+                <h3 className="text-sm sm:text-base font-medium text-white mb-2">Upload Your Code File</h3>
+                <label htmlFor={fileInputId} className="sr-only">
                     Code File
                 </label>
                 <div 
                     id={fileUploadZoneId}
-                    className={`border-2 border-dashed ${selectedFile ? 'border-indigo-500' : 'border-gray-600'} rounded-lg p-6 sm:p-8 flex flex-col items-center justify-center text-center mb-2 hover:border-indigo-500 transition-colors cursor-pointer flex-grow min-h-[180px] sm:min-h-[200px] bg-transparent hover:bg-gray-700/30`}
+                    className={`border-2 border-dashed ${selectedFile ? 'border-indigo-500' : 'border-gray-600'} rounded-lg p-4 flex flex-col items-center justify-center text-center mb-2 hover:border-indigo-400 transition-colors cursor-pointer min-h-[140px] sm:min-h-[160px] bg-transparent hover:bg-gray-700/20`}
                     onDrop={handleDrop}
                     onDragOver={handleDragOver}
                     onDragLeave={handleDragLeave}
@@ -85,33 +83,33 @@ export const FileUpload: React.FC<FileUploadProps> = ({
                     tabIndex={isLoading ? -1 : 0}
                     onKeyPress={(e) => { if (e.key === 'Enter' || e.key === ' ') !isLoading && document.getElementById(fileInputId)?.click(); }}
                 >
-                    <span className={`material-icons text-4xl sm:text-5xl mb-2 sm:mb-3 transition-colors ${selectedFile ? 'text-indigo-400' : 'text-gray-500 group-hover:text-indigo-500'}`}>
+                    <span className={`material-icons-outlined text-3xl sm:text-4xl mb-1 sm:mb-2 transition-colors ${selectedFile ? 'text-indigo-400' : 'text-gray-500 group-hover:text-indigo-500'}`}>
                         {selectedFile ? 'file_present' : 'cloud_upload'}
                     </span>
-                    <p className="text-gray-300 text-sm mb-1">
+                    <p className="text-gray-300 text-xs sm:text-sm mb-1">
                         <span className="text-indigo-400 hover:text-indigo-300 font-medium">{selectedFile ? 'Change File' : 'Choose File'}</span>
                         {!selectedFile && <span className="text-gray-500"> or drag and drop</span>}
                     </p>
-                    <p className="text-xs text-gray-500 leading-tight px-2">{displayFileExtensions}</p>
+                    <p className="text-xs text-gray-500 leading-tight px-1">{displayFileExtensionsShort}</p>
                     <input id={fileInputId} name={fileInputId} type="file" className="sr-only" onChange={handleFileChange} accept={AcceptedFileExtensions} disabled={isLoading} />
                 </div>
                 {selectedFile && (
-                    <div className="mt-1 p-2 bg-gray-700/50 rounded-md border border-gray-600/70">
-                        <p className="text-xs text-gray-300 truncate">Selected: <span className="font-medium text-indigo-400">{selectedFile.name}</span></p>
-                        <p className="text-xs text-gray-500">Size: {(selectedFile.size / 1024).toFixed(2)} KB</p>
+                    <div className="mt-1 p-1.5 bg-gray-700/40 rounded-md border border-gray-600/50 text-xs">
+                        <p className="text-gray-300 truncate">Selected: <span className="font-medium text-indigo-400">{selectedFile.name}</span></p>
+                        <p className="text-gray-500">Size: {(selectedFile.size / 1024).toFixed(2)} KB</p>
                     </div>
                 )}
             </div>
 
             {selectedFile && (
                  <div className="relative">
-                    <label htmlFor="language-select-file" className="block text-sm text-gray-400 mb-1">
+                    <label htmlFor="language-select-file" className="block text-xs text-gray-400 mb-1">
                         Language (Override if needed)
                     </label>
                     <select
                         id="language-select-file"
                         name="language-select-file"
-                        className="w-full bg-gray-700/80 border border-gray-600 text-gray-200 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 appearance-none bg-no-repeat bg-right-2.5"
+                        className="w-full bg-gray-700/80 border border-gray-600 text-gray-200 rounded-md p-2.5 text-sm focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 appearance-none bg-no-repeat bg-right-2.5"
                         style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%239ca3af'%3E%3Cpath fill-rule='evenodd' d='M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z' clip-rule='evenodd' /%3E%3C/svg%3E")`, backgroundSize: '1.25em' }}
                         value={selectedLanguage || ''}
                         onChange={handleLanguageSelectChange}
@@ -125,21 +123,23 @@ export const FileUpload: React.FC<FileUploadProps> = ({
                     </select>
                 </div>
             )}
-
+            {/* The main analyze button is now in HomePage.tsx for all modes */}
+            {/* 
             <button
                 type="button"
-                onClick={onSubmit}
+                onClick={onSubmit} // This button is specifically for FileUpload mode
                 disabled={isSubmitDisabled}
-                className="w-full mt-auto bg-indigo-500 hover:bg-indigo-600 text-white py-3 px-4 rounded-lg flex items-center justify-center space-x-2 transition-colors font-medium disabled:bg-gray-600 disabled:text-gray-400 disabled:cursor-not-allowed"
+                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2.5 px-4 rounded-md flex items-center justify-center space-x-2 transition-colors font-medium disabled:bg-gray-600 disabled:text-gray-400 disabled:cursor-not-allowed mt-2 text-sm shadow-md"
                 aria-label="Analyze uploaded code"
             >
                 {isLoading ? (
-                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
                 ) : (
-                    <span className="material-icons text-lg">analytics</span>
+                    <span className="material-icons-outlined text-lg">analytics</span>
                 )}
                 <span>{isLoading ? 'Analyzing...' : 'Analyze Code'}</span>
-            </button>
+            </button> 
+            */}
         </div>
     );
 };
