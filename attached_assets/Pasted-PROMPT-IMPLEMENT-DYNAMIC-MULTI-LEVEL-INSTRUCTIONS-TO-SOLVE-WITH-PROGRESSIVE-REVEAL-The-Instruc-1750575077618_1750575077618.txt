@@ -1,0 +1,62 @@
+PROMPT: IMPLEMENT DYNAMIC, MULTI-LEVEL "INSTRUCTIONS TO SOLVE" WITH PROGRESSIVE REVEAL
+
+The "Instructions to Solve" section must be significantly enhanced to offer truly adaptive, progressive guidance based on the practice question's complexity. Users should be able to iteratively request more detailed instructions, with the depth of guidance increasing with each request.
+
+**Key Requirements & Implementation Details:**
+
+1.  **Adaptive Initial Instructions:**
+    *   When a practice question is first displayed, the "Instructions to Solve" section should present an **initial set of instructions**.
+    *   The **number of steps and the level of detail in these initial instructions MUST inherently vary based on the AI's assessment of the practice question's length and complexity.** Simpler questions get fewer, higher-level steps; more complex questions get slightly more initial steps, still at a high level.
+
+2.  **"More Instructions" Button for Progressive Levels:**
+    *   Below the current set of instructions, there will be a **"More Instructions" button**.
+    *   **Crucially:** Each click on this button will trigger a **NEW, dedicated request to the AI** to generate the *next level* of more detailed and granular instructions for the *same practice question*.
+    *   This implies a dynamic "levels" system (e.g., Level 1 -> Level 2 -> Level 3...).
+    *   The button should remain visible and functional as long as more detailed instruction levels are available from the AI.
+    *   Display a **loading spinner** on the button or within the instructions area while new instructions are being fetched.
+    *   The button should be disabled once the most detailed level of instructions has been provided or if the AI indicates no further breakdown is beneficial.
+
+3.  **"Show Solution" Button:**
+    *   A prominent **"Show Solution" button** must remain present.
+    *   Clicking this button will trigger a **NEW, dedicated request to the AI** to reveal the **complete, correct code solution** for the practice question.
+    *   The solution should be displayed in a new, distinct code block (using `CodeBlock.tsx` for proper syntax highlighting) that appears when the button is clicked.
+    *   The button should be disabled (and show a loading state) while fetching the solution.
+    *   Once the solution is shown, the button should change to "Hide Solution" (or disappear), and the displayed code should be copyable.
+
+4.  **Backend & Gemini Prompting Adaptation (`services/geminiService.ts`):**
+    *   **Initial Analysis Prompt Update:** When `analyzeCodeWithGemini` or `analyzeConceptWithGemini` is called, Gemini will generate:
+        *   The practice question text.
+        *   The **FIRST LEVEL** of instructions for that question (adapting detail based on complexity).
+        *   The **FINAL SOLUTION CODE** and its output for the practice question. (Pre-fetching the solution to avoid a second AI call for the ultimate answer).
+    *   **New API Endpoint/Function for More Instructions:** Create a new asynchronous function, e.g., `getMoreInstructions(practiceQuestion: string, currentInstructions: string[], language: SupportedLanguage, complexityLevel: number)`, which will be called when "More Instructions" is clicked.
+    *   **Gemini's Role in `getMoreInstructions`:** The prompt for this new function must be precisely crafted. It should tell Gemini:
+        *   "Given this practice question: [practiceQuestion]"
+        *   "And the instructions already provided: [currentInstructions]"
+        *   "In [language], provide the *next, more detailed level* of instructions for solving this problem. Focus on breaking down the previous steps or offering more specific algorithmic guidance. Do not repeat already provided information unless rephrasing for clarity. Only provide the instructions, nothing else."
+        *   Gemini's response should be parsed to extract just the array of new instruction strings.
+
+5.  **Frontend State Management (`ResultDisplay.tsx`):**
+    *   Manage state variables for:
+        *   `displayedInstructions: string[]` (array of all instructions revealed so far).
+        *   `currentInstructionLevel: number` (tracks how many times "More Instructions" has been clicked).
+        *   `hasMoreInstructions: boolean` (to enable/disable the "More Instructions" button). This can be determined by the AI's response (e.g., if it says "no more detailed instructions available").
+        *   `showSolution: boolean` (to control visibility of the solution code).
+        *   `isLoadingInstructions: boolean` (for loading state of "More Instructions" button).
+        *   `isLoadingSolution: boolean` (for loading state of "Show Solution" button).
+    *   On initial load, `displayedInstructions` is set to the first level provided by the main analysis. `currentInstructionLevel` is 1.
+    *   "More Instructions" button's `onClick` handler calls `getMoreInstructions`, increments `currentInstructionLevel`, and appends new instructions to `displayedInstructions`.
+
+**Maintain All Previous Enhancements:**
+
+*   **Fixed Left Panel:** Left input panel remains fixed; right content panel is independently scrollable.
+*   **Appearance Theme Switch:** Theme selector is visible, functional, and persists in settings.
+*   **Fixed Settings Panel Overlap:** Settings panel correctly positions itself without overlap.
+*   **Default Example Difficulty:** The 'Default Example Difficulty' selector remains functional and visible.
+*   **Code Block Background & Syntax Highlighting:** All code blocks have consistent, solid backgrounds and correct external syntax highlighting in both dark and light themes.
+*   **Input Modes:** Maintain the two input modes (File Upload & Type a Concept).
+*   **Duplicate Example Code Fix:** Example Code section displays only one unique example at a time.
+*   **Structured Topic Explanation:** Maintain the three collapsible sections (Core Concepts, Line-by-Line, Execution Flow) within the Topic Explanation card.
+*   **General Design:** Preserve the laptop-first, two-column layout, modern aesthetic, refined input field/button styling, and consistent typography.
+*   **Gemini Output (Code Examples):** Ensure Gemini generates pure, raw, runnable code strings for all example code and outputs.
+
+This dynamic instruction system will provide unparalleled adaptive guidance, empowering users to learn at their own pace and get exactly the level of help they need.
