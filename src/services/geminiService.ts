@@ -1,4 +1,3 @@
-
 import { GoogleGenAI } from "@google/genai";
 import { 
     AnalysisResult, 
@@ -20,12 +19,53 @@ if (API_KEY) {
   console.error("API_KEY environment variable not found. Gemini API calls will fail. Ensure it's set in your execution environment.");
 }
 
+// Request queue to prevent concurrent API calls
+class RequestQueue {
+    private queue: Array<() => Promise<any>> = [];
+    private processing = false;
+
+    async enqueue<T>(request: () => Promise<T>): Promise<T> {
+        return new Promise((resolve, reject) => {
+            this.queue.push(async () => {
+                try {
+                    const result = await request();
+                    resolve(result);
+                } catch (error) {
+                    reject(error);
+                }
+            });
+            this.processQueue();
+        });
+    }
+
+    private async processQueue() {
+        if (this.processing || this.queue.length === 0) return;
+
+        this.processing = true;
+        while (this.queue.length > 0) {
+            const request = this.queue.shift();
+            if (request) {
+                try {
+                    await request();
+                } catch (error) {
+                    console.error('Request failed:', error);
+                }
+                // Add delay between requests to respect rate limits
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+        }
+        this.processing = false;
+    }
+}
+
+const requestQueue = new RequestQueue();
+
 const parseJsonFromAiResponse = <T>(
     responseText: string, 
     fieldCheck: (parsed: any) => true | string // Updated to return true or an error string
 ): T => {
     let jsonStr = responseText.trim();
-    
+
     const fenceRegex = /^```(?:json)?\s*\n?(.*?)\n?\s*```$/s;
     const match = jsonStr.match(fenceRegex);
     if (match && match[1]) {
@@ -86,13 +126,13 @@ const analysisResultFieldCheck = (parsed: any): true | string => {
     if (typeof parsed.topicExplanation.coreConcepts !== 'string') return "Field 'topicExplanation.coreConcepts' is not a string";
     if (typeof parsed.topicExplanation.lineByLineBreakdown !== 'string') return "Field 'topicExplanation.lineByLineBreakdown' is not a string";
     if (typeof parsed.topicExplanation.executionFlowAndDataTransformation !== 'string') return "Field 'topicExplanation.executionFlowAndDataTransformation' is not a string";
-    
+
     if (typeof parsed.exampleCode !== 'string') return "Field 'exampleCode' is not a string";
     if (typeof parsed.exampleCodeOutput !== 'string') return "Field 'exampleCodeOutput' is not a string";
-    
+
     if (typeof parsed.practiceSection !== 'object' || parsed.practiceSection === null) return "Missing 'practiceSection' object";
     if (typeof parsed.practiceSection.questionText !== 'string') return "Field 'practiceSection.questionText' is not a string";
-    
+
     if (!Array.isArray(parsed.practiceSection.instructionLevels)) return "Field 'practiceSection.instructionLevels' is not an array";
     if (parsed.practiceSection.instructionLevels.length === 0) return "Field 'practiceSection.instructionLevels' array is empty";
     for (let i = 0; i < parsed.practiceSection.instructionLevels.length; i++) {
@@ -100,10 +140,10 @@ const analysisResultFieldCheck = (parsed: any): true | string => {
             return `Element at index ${i} in 'practiceSection.instructionLevels' is not a string`;
         }
     }
-    
+
     if (typeof parsed.practiceSection.solutionCode !== 'string') return "Field 'practiceSection.solutionCode' is not a string";
     if (typeof parsed.practiceSection.solutionOutput !== 'string') return "Field 'practiceSection.solutionOutput' is not a string";
-    
+
     return true;
 };
 
@@ -189,10 +229,10 @@ Respond ONLY with the valid JSON object described above. Ensure the JSON is well
 `;
 
     try {
-        const response = await ai.models.generateContent({
+        const response = await requestQueue.enqueue(() => ai!.models.generateContent({
             model: "gemini-2.5-flash-preview-04-17", contents: prompt,
             config: { responseMimeType: "application/json", temperature: 0.4 }
-        });
+        }));
         const parsedResult = parseJsonFromAiResponse<AnalysisResult>(response.text, analysisResultFieldCheck);
         return parsedResult;
     } catch (error) {
@@ -256,10 +296,10 @@ Respond ONLY with the valid JSON object. Ensure the JSON is well-formed and all 
 `;
 
     try {
-        const response = await ai.models.generateContent({
+        const response =  await requestQueue.enqueue(() => ai!.models.generateContent({
             model: "gemini-2.5-flash-preview-04-17", contents: prompt,
             config: { responseMimeType: "application/json", temperature: 0.45 }
-        });
+        }));
         const parsedResult = parseJsonFromAiResponse<AnalysisResult>(response.text, analysisResultFieldCheck);
         return parsedResult;
     } catch (error) {
@@ -327,10 +367,10 @@ CRITICALLY IMPORTANT: Ensure all keys within any single JSON object are unique. 
 Respond ONLY with the valid JSON object described above, without any additional explanations or surrounding text. Ensure the JSON is well-formed and all string values are properly escaped for JSON.
 `;
     try {
-        const response = await ai.models.generateContent({
+        const response = await requestQueue.enqueue(() => ai!.models.generateContent({
             model: "gemini-2.5-flash-preview-04-17", contents: prompt,
             config: { responseMimeType: "application/json", temperature: 0.3 } 
-        });
+        }));
         return parseJsonFromAiResponse<UserSolutionAnalysis>(response.text, userSolutionAnalysisFieldCheck);
     } catch (error) {
         console.error("Error calling Gemini API for solution check:", error);
@@ -367,10 +407,10 @@ CRITICALLY IMPORTANT: Ensure all keys within any single JSON object are unique. 
 Respond ONLY with the valid JSON object. Ensure all string values are properly escaped for JSON.
 `;
     try {
-        const response = await ai.models.generateContent({
+        const response = await requestQueue.enqueue(() => ai!.models.generateContent({
             model: "gemini-2.5-flash-preview-04-17", contents: prompt,
             config: { responseMimeType: "application/json", temperature: 0.6 }
-        });
+        }));
         return parseJsonFromAiResponse<ExampleCodeData>(response.text, exampleCodeDataFieldCheck);
     } catch (error) {
         console.error(`Error calling Gemini API for ${difficulty} example:`, error);
@@ -393,7 +433,7 @@ export const askFollowUpQuestionWithGemini = async (
     inputType: 'code' | 'concept'
 ): Promise<string> => {
     if (!ai) throw new Error("Gemini AI client is not initialized. Ensure API_KEY is set.");
-    
+
     const languageName = LanguageDisplayNames[language] || "the specified language";
     const contextType = inputType === 'code' ? "the user's code snippet" : "the user's concept";
 
@@ -424,11 +464,11 @@ Ensure that any special characters like backslashes are appropriately represente
 `;
 
     try {
-        const response = await ai.models.generateContent({
+        const response = await requestQueue.enqueue(() => ai!.models.generateContent({
             model: "gemini-2.5-flash-preview-04-17",
             contents: prompt,
             config: { temperature: 0.55 }
-        });
+        }));
         return response.text;
     } catch (error) {
         console.error("Error calling Gemini API for follow-up question:", error);

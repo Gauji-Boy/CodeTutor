@@ -213,8 +213,19 @@ const HomePageInternal: React.FC<HomePageProps> = ({ initialActivity, onBackToDa
                 setIsSettingsPanelOpen(false);
             }
         };
-        if (isSettingsPanelOpen) document.addEventListener('mousedown', handleClickOutside);
-        return () => document.removeEventListener('mousedown', handleClickOutside);
+        
+        let timeoutId: NodeJS.Timeout;
+        if (isSettingsPanelOpen) {
+            // Debounce the event listener addition
+            timeoutId = setTimeout(() => {
+                document.addEventListener('mousedown', handleClickOutside);
+            }, 100);
+        }
+        
+        return () => {
+            if (timeoutId) clearTimeout(timeoutId);
+            document.removeEventListener('mousedown', handleClickOutside);
+        };
     }, [isSettingsPanelOpen]);
 
     const toggleSettingsPanel = () => setIsSettingsPanelOpen(prev => !prev);
@@ -419,18 +430,39 @@ const HomePageInternal: React.FC<HomePageProps> = ({ initialActivity, onBackToDa
 
     const prismLanguageForPastedCodeEditor = getPrismLanguageString(pastedCodeLanguage || LangEnum.PYTHON);
     
-    const robustHighlight = (code: string, lang: string) => {
+    const robustHighlight = useCallback((code: string, lang: string) => {
         if (typeof Prism === 'undefined' || !Prism.highlight || !code) return escapeHtml(code || '');
-        const grammar = Prism.languages[lang] || Prism.languages.clike; // Fallback to clike if specific lang not found
+        
+        // Cache highlighted code to avoid re-computation
+        const cacheKey = `${lang}_${code.substring(0, 100)}`;
+        if (highlightCache.has(cacheKey)) {
+            return highlightCache.get(cacheKey)!;
+        }
+        
+        const grammar = Prism.languages[lang] || Prism.languages.clike;
         if (grammar) { 
             try { 
-                return Prism.highlight(code, grammar, lang); 
+                const highlighted = Prism.highlight(code, grammar, lang);
+                highlightCache.set(cacheKey, highlighted);
+                
+                // Limit cache size
+                if (highlightCache.size > 50) {
+                    const firstKey = highlightCache.keys().next().value;
+                    highlightCache.delete(firstKey);
+                }
+                
+                return highlighted;
             } catch (e) { 
                 console.warn(`Prism highlighting failed for ${lang} in editor:`, e); 
             } 
         }
-        return escapeHtml(code); // Fallback for unhighlighted code
-    };
+        const escaped = escapeHtml(code);
+        highlightCache.set(cacheKey, escaped);
+        return escaped;
+    }, []);
+
+    // Add cache for highlighted code
+    const highlightCache = useRef(new Map<string, string>());
 
 
     const stickyTopOffset = "md:top-[calc(3.5rem+1.5rem)]"; 

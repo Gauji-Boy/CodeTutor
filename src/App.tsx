@@ -1,10 +1,14 @@
 
 
-import React, { useState, useEffect, useCallback } from 'react';
-import DashboardPage from './pages/DashboardPage';
-import { HomePage } from './pages/HomePage'; // The analysis page
+import React, { useState, useEffect, useCallback, Suspense, lazy } from 'react';
 import { Toaster, toast } from 'react-hot-toast';
 import { ActivityItem } from './types';
+import { LoadingSpinner } from './components/LoadingSpinner';
+import { ErrorBoundary } from './components/ErrorBoundary';
+
+// Lazy load components for better performance
+const DashboardPage = lazy(() => import('./pages/DashboardPage'));
+const HomePage = lazy(() => import('./pages/HomePage').then(module => ({ default: module.HomePage })));
 
 const MAX_ACTIVITIES = 50;
 const ACTIVITY_STORAGE_KEY = 'codeTutorAI_Activities';
@@ -30,18 +34,39 @@ const App: React.FC = () => {
         return [];
     });
 
+    // Debounced storage to prevent excessive writes
     useEffect(() => {
-        try {
-            // Ensure analysisDifficulty is stored
-            const activitiesToStore = allActivities.map(activity => ({
-                ...activity,
-                timestamp: activity.timestamp.toISOString(), 
-                analysisDifficulty: activity.analysisDifficulty || 'easy', // Ensure it's present for storage
-            }));
-            localStorage.setItem(ACTIVITY_STORAGE_KEY, JSON.stringify(activitiesToStore));
-        } catch (error) {
-            console.error("Error saving activities to localStorage:", error);
-        }
+        const timeoutId = setTimeout(() => {
+            try {
+                const activitiesToStore = allActivities.map(activity => ({
+                    ...activity,
+                    timestamp: activity.timestamp.toISOString(), 
+                    analysisDifficulty: activity.analysisDifficulty || 'easy',
+                }));
+                
+                const serialized = JSON.stringify(activitiesToStore);
+                
+                // Check if localStorage has enough space
+                const estimatedSize = new Blob([serialized]).size;
+                if (estimatedSize > 5 * 1024 * 1024) { // 5MB limit
+                    console.warn('Storage size limit approaching, clearing old activities');
+                    const recentActivities = allActivities.slice(0, MAX_ACTIVITIES / 2);
+                    setAllActivities(recentActivities);
+                    return;
+                }
+                
+                localStorage.setItem(ACTIVITY_STORAGE_KEY, serialized);
+            } catch (error) {
+                console.error("Error saving activities to localStorage:", error);
+                if (error instanceof Error && error.name === 'QuotaExceededError') {
+                    // Clear old activities if storage is full
+                    const recentActivities = allActivities.slice(0, MAX_ACTIVITIES / 2);
+                    setAllActivities(recentActivities);
+                }
+            }
+        }, 500); // 500ms debounce
+
+        return () => clearTimeout(timeoutId);
     }, [allActivities]);
 
     const addActivity = useCallback((newActivity: ActivityItem) => {
@@ -89,7 +114,7 @@ const App: React.FC = () => {
     };
 
     return (
-        <>
+        <ErrorBoundary>
             <Toaster
                 position="top-center"
                 toastOptions={{
@@ -99,23 +124,25 @@ const App: React.FC = () => {
                     error: { iconTheme: { primary: '#f43f5e', secondary: 'var(--bg-primary)' } },
                 }}
             />
-            {currentView === 'dashboard' && (
-                <DashboardPage
-                    activities={allActivities}
-                    onViewActivityDetail={navigateToAnalysis}
-                    onAddActivity={addActivity} 
-                    onClearAllActivities={clearAllActivities} 
-                />
-            )}
-            {currentView === 'analysis' && (
-                <HomePage
-                    initialActivity={activityToLoad}
-                    onBackToDashboard={navigateToDashboard}
-                    onAddActivity={addActivity}
-                    onClearAllActivities={clearAllActivities} 
-                />
-            )}
-        </>
+            <Suspense fallback={<LoadingSpinner loadingText="Loading..." />}>
+                {currentView === 'dashboard' && (
+                    <DashboardPage
+                        activities={allActivities}
+                        onViewActivityDetail={navigateToAnalysis}
+                        onAddActivity={addActivity} 
+                        onClearAllActivities={clearAllActivities} 
+                    />
+                )}
+                {currentView === 'analysis' && (
+                    <HomePage
+                        initialActivity={activityToLoad}
+                        onBackToDashboard={navigateToDashboard}
+                        onAddActivity={addActivity}
+                        onClearAllActivities={clearAllActivities} 
+                    />
+                )}
+            </Suspense>
+        </ErrorBoundary>
     );
 };
 
