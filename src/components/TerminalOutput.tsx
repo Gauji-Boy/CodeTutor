@@ -1,4 +1,3 @@
-
 import React from 'react';
 
 interface TerminalOutputProps {
@@ -6,7 +5,7 @@ interface TerminalOutputProps {
     title?: string;
 }
 
-export const TerminalOutput: React.FC<TerminalOutputProps> = ({ output, title = "Output" }) => {
+const TerminalOutputComponent: React.FC<TerminalOutputProps> = ({ output, title = "Output" }) => {
     if (typeof output !== 'string') {
         if (output === null || output === undefined) return null; 
     }
@@ -29,3 +28,5 @@ export const TerminalOutput: React.FC<TerminalOutputProps> = ({ output, title = 
         </div>
     );
 };
+
+export const TerminalOutput = React.memo(TerminalOutputComponent);

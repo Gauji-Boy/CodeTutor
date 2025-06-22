@@ -118,7 +118,7 @@ Follow these steps to set up and run CodeTutor AI locally using **Vite**.
        Replace `YOUR_GEMINI_API_KEY_GOES_HERE` with your actual key.
    *   **Git Ignore**: Ensure `.env` is listed in your `.gitignore` file (a provided `.gitignore` file should already include this). This prevents your API key from being committed to version control.
 
-   > **Note**: The `vite.config.ts` (provided) is set up to load this `API_KEY`. If the development server is running, **restart it** after creating or modifying the `.env` file for the key to be recognized.
+   > **Important**: The `vite.config.ts` is configured to make this `API_KEY` available to your application. If your development server (`npm run dev`) is already running when you create or change the `.env` file, you **must restart the server** for the new key to take effect.
 
 **4. Check `index.html`**
 

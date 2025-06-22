@@ -1,17 +1,28 @@
 
+export interface TopicExplanationParts {
+    coreConcepts: string;
+    lineByLineBreakdown: string;
+    executionFlowAndDataTransformation: string;
+}
+
+export interface PracticeMaterial {
+    questionText: string;
+    instructionLevels: string[]; // Dynamic array of instruction levels
+    solutionCode: string;
+    solutionOutput: string;
+}
+
 export interface AnalysisResult {
-    topicExplanation: string;
+    topicExplanation: TopicExplanationParts;
     exampleCode: string;
     exampleCodeOutput: string;
-    practiceQuestion: string;
-    instructions: string;
-    exampleDifficulty?: ExampleDifficulty; // Optional: AI might specify or we set it based on request
+    practiceSection: PracticeMaterial; 
 }
 
 export interface UserSolutionAnalysis {
     predictedOutput: string;
     feedback: string;
-    isCorrect?: boolean; // Optional: AI might determine correctness
+    isCorrect?: boolean; 
 }
 
 export enum SupportedLanguage {
@@ -27,7 +38,7 @@ export enum SupportedLanguage {
     CSS = "css",
     JSON = "json",
     MARKDOWN = "markdown",
-    SHELL = "shell", // For bash/sh scripts
+    SHELL = "shell", 
     LUA = "lua",
     UNKNOWN = "unknown"
 }
@@ -46,10 +57,10 @@ export const LanguageExtensions: Record<string, SupportedLanguage> = {
     ".java": SupportedLanguage.JAVA,
     ".rs": SupportedLanguage.RUST,
     ".js": SupportedLanguage.JAVASCRIPT,
-    ".jsx": SupportedLanguage.JAVASCRIPT, // Often used with React
+    ".jsx": SupportedLanguage.JAVASCRIPT, 
     ".mjs": SupportedLanguage.JAVASCRIPT,
     ".ts": SupportedLanguage.TYPESCRIPT,
-    ".tsx": SupportedLanguage.TYPESCRIPT, // Often used with React
+    ".tsx": SupportedLanguage.TYPESCRIPT, 
     ".go": SupportedLanguage.GO,
     ".html": SupportedLanguage.HTML,
     ".htm": SupportedLanguage.HTML,
@@ -109,14 +120,14 @@ export type ActivityType = 'file_analysis' | 'concept_explanation' | 'paste_anal
 export interface ActivityItem {
     id: string;
     type: ActivityType;
-    title: string; // e.g., "my_script.py", "Concept: Python Decorators", "Settings Changed"
+    title: string; 
     timestamp: Date;
-    summary?: string; // e.g., "5 suggestions found", "Difficulty set to Hard"
-    icon: string; // Material icon name
-    colorClass: string; // Tailwind color class for icon
-    language?: SupportedLanguage; // Optional: To track language for relevant activities
+    summary?: string; 
+    icon: string; 
+    colorClass: string; 
+    language?: SupportedLanguage; 
     
-    // Fields for re-loading analysis:
-    originalInput?: string; // The original code, concept text, or pasted code
-    analysisResult?: AnalysisResult | null; // The actual result from Gemini
+    originalInput?: string; 
+    analysisResult?: AnalysisResult | null; 
+    analysisDifficulty?: ExampleDifficulty; 
 }

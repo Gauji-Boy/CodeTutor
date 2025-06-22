@@ -1,7 +1,7 @@
-
 import React, { useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
 import { SupportedLanguage } from '../types';
+import { escapeHtml } from '../utils/textUtils'; // Import centralized utility
 
 declare var Prism: any;
 
@@ -32,17 +32,7 @@ interface CodeBlockProps {
     idSuffix?: string;
 }
 
-const escapeHtml = (unsafe: string): string => {
-    if (typeof unsafe !== 'string') return '';
-    return unsafe
-         .replace(/&/g, "&amp;")
-         .replace(/</g, "&lt;")
-         .replace(/>/g, "&gt;")
-         .replace(/"/g, "&quot;")
-         .replace(/'/g, "&#039;");
-};
-
-export const CodeBlock = ({ code, language, idSuffix = "" }: CodeBlockProps): JSX.Element => {
+const CodeBlockComponent: React.FC<CodeBlockProps> = ({ code, language, idSuffix = "" }) => {
     const [copied, setCopied] = useState(false);
     const [highlightedHtml, setHighlightedHtml] = useState<string>('');
 
@@ -86,7 +76,8 @@ export const CodeBlock = ({ code, language, idSuffix = "" }: CodeBlockProps): JS
             }
         };
 
-        const timer = setTimeout(highlightCode, 50);
+        // Defer highlighting slightly to avoid blocking initial render for complex code blocks
+        const timer = setTimeout(highlightCode, 0); 
 
         return () => {
             isMounted = false;
@@ -107,14 +98,11 @@ export const CodeBlock = ({ code, language, idSuffix = "" }: CodeBlockProps): JS
 
     const prismLanguageClass = `language-${getPrismLanguageString(language)}`;
 
-    // Removed outer div's background and border for cleaner integration into other components like modals
-    // Modals or parent components will now define the background/border for the code viewing area.
-    // Padding is now applied directly to the <pre> tag for consistency.
-    const elementToReturn = (
+    return (
         <div className="relative group">
             <pre
                 className={`p-3 sm:p-3.5 !m-0 overflow-auto text-xs custom-scrollbar-small bg-gray-700/70 rounded-md ${prismLanguageClass}`}
-                style={{ tabSize: 4 }}
+                style={{ tabSize: 4 }} // Consistent tab size
             >
                 <code
                     className={`font-fira-code !text-gray-200 whitespace-pre ${prismLanguageClass}`}
@@ -133,5 +121,5 @@ export const CodeBlock = ({ code, language, idSuffix = "" }: CodeBlockProps): JS
             </button>
         </div>
     );
-    return elementToReturn;
 };
+export const CodeBlock = React.memo(CodeBlockComponent);

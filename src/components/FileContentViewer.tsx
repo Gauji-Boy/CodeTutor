@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { CodeBlock } from './CodeBlock';
 import { SupportedLanguage, LanguageDisplayNames } from '../types';
@@ -9,7 +8,7 @@ interface FileContentViewerProps {
     onViewFull?: () => void; // New prop
 }
 
-export const FileContentViewer: React.FC<FileContentViewerProps> = ({ codeContent, language, onViewFull }) => {
+const FileContentViewerComponent: React.FC<FileContentViewerProps> = ({ codeContent, language, onViewFull }) => {
     const languageName = LanguageDisplayNames[language] || "Source Code";
     return (
         <div className="w-full">
@@ -35,3 +34,5 @@ export const FileContentViewer: React.FC<FileContentViewerProps> = ({ codeConten
         </div>
     );
 };
+
+export const FileContentViewer = React.memo(FileContentViewerComponent);

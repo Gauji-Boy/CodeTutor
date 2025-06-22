@@ -1,11 +1,10 @@
-
 import React from 'react';
 
 interface LoadingSpinnerProps {
     loadingText?: string;
 }
 
-export const LoadingSpinner: React.FC<LoadingSpinnerProps> = ({ loadingText = "Analyzing..." }) => {
+const LoadingSpinnerComponent: React.FC<LoadingSpinnerProps> = ({ loadingText = "Analyzing..." }) => {
     return (
         <div className="flex flex-col justify-center items-center py-8 sm:py-10 text-center w-full flex-grow">
             <div className="w-7 h-7 sm:w-9 sm:h-9 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mb-2.5 sm:mb-3.5"></div>
@@ -16,3 +15,5 @@ export const LoadingSpinner: React.FC<LoadingSpinnerProps> = ({ loadingText = "A
         </div>
     );
 };
+
+export const LoadingSpinner = React.memo(LoadingSpinnerComponent);

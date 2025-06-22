@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { ActivityItem } from '../types';
 import toast from 'react-hot-toast';
@@ -25,7 +24,7 @@ const formatTimestamp = (date: Date): string => {
     return date.toLocaleDateString();
 };
 
-export const AllActivityModal: React.FC<AllActivityModalProps> = ({ isOpen, onClose, activities, onViewActivityDetail }) => {
+const AllActivityModalComponent: React.FC<AllActivityModalProps> = ({ isOpen, onClose, activities, onViewActivityDetail }) => {
     if (!isOpen) return null;
 
     const handleActivityClick = (activity: ActivityItem) => {
@@ -102,3 +101,4 @@ export const AllActivityModal: React.FC<AllActivityModalProps> = ({ isOpen, onCl
         </div>
     );
 };
+export const AllActivityModal = React.memo(AllActivityModalComponent);

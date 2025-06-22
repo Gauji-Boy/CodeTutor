@@ -1,11 +1,10 @@
-
 import React from 'react';
 
 interface ErrorMessageProps {
     message: string;
 }
 
-export const ErrorMessage: React.FC<ErrorMessageProps> = ({ message }) => {
+const ErrorMessageComponent: React.FC<ErrorMessageProps> = ({ message }) => {
     let errorTitle = "Error Occurred";
     let errorDetails = message;
 
@@ -32,3 +31,5 @@ export const ErrorMessage: React.FC<ErrorMessageProps> = ({ message }) => {
         </div>
     );
 };
+
+export const ErrorMessage = React.memo(ErrorMessageComponent);

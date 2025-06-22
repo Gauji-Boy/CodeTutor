@@ -1,4 +1,3 @@
-
 import React, { useEffect, useRef } from 'react';
 import { CodeBlock } from './CodeBlock';
 import { SupportedLanguage } from '../types';
@@ -10,7 +9,7 @@ interface FullScreenCodeModalProps {
     onClose: () => void;
 }
 
-export const FullScreenCodeModal: React.FC<FullScreenCodeModalProps> = ({ isOpen, code, language, onClose }) => {
+const FullScreenCodeModalComponent: React.FC<FullScreenCodeModalProps> = ({ isOpen, code, language, onClose }) => {
     const modalRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -80,3 +79,5 @@ export const FullScreenCodeModal: React.FC<FullScreenCodeModalProps> = ({ isOpen
         </div>
     );
 };
+
+export const FullScreenCodeModal = React.memo(FullScreenCodeModalComponent);

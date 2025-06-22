@@ -1,4 +1,3 @@
-
 import React, { useState, useCallback, useEffect } from 'react';
 import toast from 'react-hot-toast';
 import Editor from 'react-simple-code-editor';
@@ -10,18 +9,103 @@ import {
     SupportedLanguage,
     ExampleDifficulty,
     ExampleDifficultyLevels,
-    ExampleDifficultyDisplayNames
+    ExampleDifficultyDisplayNames,
+    PracticeMaterial 
 } from '../types'; 
 import { LanguageDisplayNames } from '../types'; 
 import { TerminalOutput } from './TerminalOutput';
 import { 
     checkUserSolutionWithGemini, 
     getExampleByDifficulty,
-    askFollowUpQuestionWithGemini,
-    getAdditionalExplanation
+    askFollowUpQuestionWithGemini
 } from '../services/geminiService'; 
 import { ErrorMessage } from './ErrorMessage'; 
 import { CodeBlock, getPrismLanguageString } from './CodeBlock'; 
+import { escapeHtml } from '../utils/textUtils'; // Import centralized utility
+
+
+interface CollapsibleSectionProps {
+    title: string;
+    content: string;
+    isExpandedInitially?: boolean;
+    iconName?: string;
+}
+
+const CollapsibleSectionComponent: React.FC<CollapsibleSectionProps> = ({ title, content, isExpandedInitially = false, iconName = "info" }) => {
+    const [isExpanded, setIsExpanded] = useState(isExpandedInitially);
+
+    const toggleExpansion = () => setIsExpanded(!isExpanded);
+
+    const renderFormattedContent = (text: string) => {
+      if (!text || text.trim().toLowerCase() === "n/a" || text.trim().toLowerCase() === "not applicable") {
+        return <p className="text-sm text-gray-400 italic">This section is not applicable for the current analysis or was not provided.</p>;
+      }
+      return text
+        .split('\n')
+        .map(line => line.trim())
+        .filter(line => line.length > 0)
+        .map((paragraph, index) => (
+            <p key={index} 
+               dangerouslySetInnerHTML={{ 
+                   __html: paragraph
+                    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') 
+                    .replace(/\*(.*?)\*/g, '<em>$1</em>')       
+               }}>
+            </p>
+        ));
+    };
+    
+    return (
+        <div className="py-2">
+            <button
+                type="button"
+                onClick={toggleExpansion}
+                className="w-full flex justify-between items-center text-left text-sm font-medium text-gray-100 hover:text-indigo-300 p-2 rounded-md hover:bg-gray-700/40 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:ring-offset-1 focus:ring-offset-gray-800 transition-colors"
+                aria-expanded={isExpanded}
+            >
+                <span className="flex items-center">
+                    <span className="material-icons-outlined text-indigo-400 mr-2 text-base">{iconName}</span>
+                    {title}
+                </span>
+                <span className={`material-icons-outlined text-lg transform transition-transform duration-200 ${isExpanded ? 'rotate-180' : 'rotate-0'}`}>
+                    expand_more
+                </span>
+            </button>
+            <div 
+                className={`transition-all duration-300 ease-in-out overflow-hidden ${isExpanded ? 'max-h-[1500px] opacity-100' : 'max-h-0 opacity-50'}`}
+                style={{ transitionProperty: 'max-height, opacity' }}
+            >
+                <div className="mt-1.5 pl-3 pr-2 py-1.5 border-l-2 border-gray-700/60">
+                     <div className="text-sm text-gray-300 leading-relaxed prose prose-sm prose-invert max-w-none">
+                        {renderFormattedContent(content)}
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+const CollapsibleSection = React.memo(CollapsibleSectionComponent);
+
+
+const renderInstructionList = (instructionsString: string | undefined) => {
+    if (!instructionsString || instructionsString.trim() === "") {
+        return <p className="text-sm text-gray-400 italic">No instructions provided for this level, or this level is not applicable.</p>;
+    }
+    return (
+        <ul className="list-none text-sm text-gray-300 space-y-2 leading-relaxed">
+            {instructionsString.split('\n').map((line, index) => {
+                const trimmedLine = line.trim().replace(/^(\d+\.|-|\*|\u2022|Step\s*\d*:)\s*/i, '');
+                if (trimmedLine) return (
+                    <li key={index} className="flex items-start pl-1">
+                        <span className="material-icons-outlined text-indigo-500 text-base mr-2.5 mt-px flex-shrink-0">chevron_right</span>
+                        <span>{trimmedLine}</span>
+                    </li>
+                );
+                return null;
+            })}
+        </ul>
+    );
+};
 
 interface ResultDisplayProps {
     result: AnalysisResult;
@@ -31,19 +115,7 @@ interface ResultDisplayProps {
     originalInputType: 'code' | 'concept';
 }
 
-const MAX_ELABORATION_LEVELS = 2;
-
-const escapeHtml = (unsafe: string): string => {
-    if (typeof unsafe !== 'string') return '';
-    return unsafe
-         .replace(/&/g, "&amp;")
-         .replace(/</g, "&lt;")
-         .replace(/>/g, "&gt;")
-         .replace(/"/g, "&quot;")
-         .replace(/'/g, "&#039;");
-};
-
-export const ResultDisplay: React.FC<ResultDisplayProps> = ({ 
+const ResultDisplayComponent: React.FC<ResultDisplayProps> = ({ 
     result, 
     language, 
     difficultyOfProvidedExample,
@@ -62,42 +134,40 @@ export const ResultDisplay: React.FC<ResultDisplayProps> = ({
     const [userSolutionAnalysis, setUserSolutionAnalysis] = useState<UserSolutionAnalysis | null>(null);
     const [isCheckingSolution, setIsCheckingSolution] = useState<boolean>(false);
     const [solutionError, setSolutionError] = useState<string | null>(null);
-
-    const [currentTopicExplanation, setCurrentTopicExplanation] = useState<string>(result.topicExplanation);
     
-    // State for tiered elaborations
-    const [elaborationLevel, setElaborationLevel] = useState<number>(0);
-    const [additionalTopicExplanations, setAdditionalTopicExplanations] = useState<string[]>([]);
-    const [isFetchingAdditionalExplanation, setIsFetchingAdditionalExplanation] = useState<boolean>(false);
-    const [additionalExplanationError, setAdditionalExplanationError] = useState<string | null>(null);
-
     const [followUpQuestionText, setFollowUpQuestionText] = useState<string>('');
     const [followUpAnswer, setFollowUpAnswer] = useState<string | null>(null);
     const [isAskingFollowUp, setIsAskingFollowUp] = useState<boolean>(false);
     const [followUpError, setFollowUpError] = useState<string | null>(null);
 
+    const [currentInstructionLevelIndex, setCurrentInstructionLevelIndex] = useState<number>(0); 
+    const [showSolution, setShowSolution] = useState<boolean>(false);
+
+    const { coreConcepts, lineByLineBreakdown, executionFlowAndDataTransformation } = result.topicExplanation;
+    const { practiceSection } = result; 
+    const instructionLevels = practiceSection.instructionLevels || [];
+    const MAX_INSTRUCTION_LEVEL_INDEX = instructionLevels.length - 1;
+
     useEffect(() => {
         setCurrentExampleCode(result.exampleCode);
         setCurrentExampleCodeOutput(result.exampleCodeOutput);
-        setSelectedExampleDifficulty(result.exampleDifficulty || difficultyOfProvidedExample); 
+        setSelectedExampleDifficulty(difficultyOfProvidedExample);
         setShowExampleOutput(false);
         setIsExampleLoading(false);
         setExampleError(null);
+
         setPracticeSolution('');
         setUserSolutionAnalysis(null);
         setSolutionError(null);
-        setCurrentTopicExplanation(result.topicExplanation);
-        
-        // Reset elaborations on new result
-        setElaborationLevel(0);
-        setAdditionalTopicExplanations([]);
-        setIsFetchingAdditionalExplanation(false);
-        setAdditionalExplanationError(null);
 
         setFollowUpQuestionText('');
         setFollowUpAnswer(null);
         setIsAskingFollowUp(false);
         setFollowUpError(null);
+
+        setCurrentInstructionLevelIndex(0); 
+        setShowSolution(false);
+
     }, [result, difficultyOfProvidedExample]);
 
     const handleDifficultyChange = useCallback(async (newDifficulty: ExampleDifficulty) => {
@@ -112,7 +182,7 @@ export const ResultDisplay: React.FC<ResultDisplayProps> = ({
         try {
             if (!language || language === SupportedLanguage.UNKNOWN) throw new Error("Language not set for example generation.");
             toast(`Fetching ${ExampleDifficultyDisplayNames[newDifficulty]} example...`, { icon: '⏳', duration: 2500 });
-            const exampleData = await getExampleByDifficulty(result.topicExplanation, language, newDifficulty);
+            const exampleData = await getExampleByDifficulty(coreConcepts, language, newDifficulty);
             setCurrentExampleCode(exampleData.exampleCode);
             setCurrentExampleCodeOutput(exampleData.exampleCodeOutput);
             setSelectedExampleDifficulty(newDifficulty);
@@ -123,7 +193,7 @@ export const ResultDisplay: React.FC<ResultDisplayProps> = ({
         } finally {
             setIsExampleLoading(false);
         }
-    }, [selectedExampleDifficulty, isExampleLoading, language, result.topicExplanation, exampleError]);
+    }, [selectedExampleDifficulty, isExampleLoading, language, coreConcepts, exampleError]);
 
     const handleCheckSolution = useCallback(async () => {
         if (!practiceSolution.trim()) {
@@ -133,14 +203,13 @@ export const ResultDisplay: React.FC<ResultDisplayProps> = ({
 
         try {
             if (!language || language === SupportedLanguage.UNKNOWN) throw new Error("Language not identified, cannot check solution.");
-            if (!result.instructions) throw new Error("Instructions for the practice question are missing, cannot verify solution accurately.");
+            if (!practiceSection) throw new Error("Practice material is missing, cannot verify solution accurately.");
 
             const analysis = await checkUserSolutionWithGemini(
                 practiceSolution, 
                 language, 
-                result.practiceQuestion, 
-                result.topicExplanation,
-                result.instructions // Pass the instructions
+                practiceSection, 
+                coreConcepts 
             );
             setUserSolutionAnalysis(analysis);
             toast.success("AI feedback on your solution received!");
@@ -150,36 +219,7 @@ export const ResultDisplay: React.FC<ResultDisplayProps> = ({
         } finally {
             setIsCheckingSolution(false);
         }
-    }, [practiceSolution, language, result.practiceQuestion, result.topicExplanation, result.instructions]);
-
-    const handleFetchAdditionalExplanation = useCallback(async () => {
-        if (isFetchingAdditionalExplanation || elaborationLevel >= MAX_ELABORATION_LEVELS) return;
-        
-        const nextLevel = elaborationLevel + 1;
-        setIsFetchingAdditionalExplanation(true);
-        setAdditionalExplanationError(null);
-        toast(`Getting more details (Level ${nextLevel})...`, { icon: '💡' });
-        
-        try {
-            const moreDetails = await getAdditionalExplanation(
-                currentTopicExplanation,
-                language,
-                originalInputContext,
-                originalInputType,
-                nextLevel 
-            );
-            setAdditionalTopicExplanations(prev => [...prev, moreDetails]);
-            setElaborationLevel(nextLevel);
-            toast.success(`More details (Level ${nextLevel}) loaded!`);
-        } catch (err) {
-            const msg = err instanceof Error ? err.message : "Could not fetch more details.";
-            setAdditionalExplanationError(msg);
-            toast.error(msg);
-        } finally {
-            setIsFetchingAdditionalExplanation(false);
-        }
-    }, [currentTopicExplanation, language, originalInputContext, originalInputType, elaborationLevel, isFetchingAdditionalExplanation]);
-
+    }, [practiceSolution, language, practiceSection, coreConcepts]);
 
     const handleAskFollowUpQuestion = useCallback(async () => {
         if (!followUpQuestionText.trim() || isAskingFollowUp) return;
@@ -188,7 +228,8 @@ export const ResultDisplay: React.FC<ResultDisplayProps> = ({
         setFollowUpAnswer(null);
         toast("Asking AI your question...", { icon: '💬' });
         try {
-            const answer = await askFollowUpQuestionWithGemini(followUpQuestionText, currentTopicExplanation, language, originalInputContext, originalInputType);
+            const fullExplanationForContext = `Core Concepts: ${coreConcepts}\n\nLine-by-Line Breakdown: ${lineByLineBreakdown}\n\nExecution Flow: ${executionFlowAndDataTransformation}`;
+            const answer = await askFollowUpQuestionWithGemini(followUpQuestionText, fullExplanationForContext, language, originalInputContext, originalInputType);
             setFollowUpAnswer(answer);
             toast.success("AI has responded!");
         } catch (err) {
@@ -197,7 +238,14 @@ export const ResultDisplay: React.FC<ResultDisplayProps> = ({
         } finally {
             setIsAskingFollowUp(false);
         }
-    }, [followUpQuestionText, currentTopicExplanation, language, originalInputContext, originalInputType, isAskingFollowUp]);
+    }, [followUpQuestionText, coreConcepts, lineByLineBreakdown, executionFlowAndDataTransformation, language, originalInputContext, originalInputType, isAskingFollowUp]);
+
+    const handleMoreInstructions = () => {
+        if (currentInstructionLevelIndex < MAX_INSTRUCTION_LEVEL_INDEX) {
+            setCurrentInstructionLevelIndex(prev => prev + 1);
+            toast.success(`Revealed Level ${currentInstructionLevelIndex + 2} instructions!`, {icon: '📚'});
+        }
+    };
 
     const isCheckSolutionDisabled = isCheckingSolution || !practiceSolution.trim();
     const prismLanguageForEditor = getPrismLanguageString(language);
@@ -211,74 +259,37 @@ export const ResultDisplay: React.FC<ResultDisplayProps> = ({
         return escapeHtml(code); 
     };
     
-    const renderParagraphs = (text: string) => {
+    const renderParagraphsForFollowUp = (text: string) => { 
       if (!text) return null;
-      return text
-        .split('\n')
-        .map(line => line.trim())
-        .filter(line => line.length > 0)
-        .map((paragraph, index) => (
-            <p key={index} 
-               dangerouslySetInnerHTML={{ 
-                   __html: paragraph
-                    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') 
-                    .replace(/\*(.*?)\*/g, '<em>$1</em>')       
-               }}>
-            </p>
-        ));
+      const formattedText = text
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') 
+        .replace(/\*(.*?)\*/g, '<em>$1</em>');       
+      
+      return formattedText.split('\n').map((paragraph, index) => (
+        <p key={index} dangerouslySetInnerHTML={{ __html: paragraph }}></p>
+      ));
     };
 
-    const elaborationButtonText = elaborationLevel === 0 ? "Elaborate Further" : "Elaborate Even More";
+    const currentInstructionsContent = instructionLevels[currentInstructionLevelIndex];
 
     return (
         <div className="w-full text-left space-y-6 sm:space-y-8">
-            <section aria-labelledby="topic-explanation-title">
-                <h3 id="topic-explanation-title" className="text-lg font-semibold text-white mb-3 flex items-center">
-                    <span className="material-icons-outlined text-indigo-400 mr-2 text-xl">lightbulb</span>Topic Explanation
+            <section aria-labelledby="topic-explanation-main-title">
+                <h3 id="topic-explanation-main-title" className="text-lg font-semibold text-white mb-2 flex items-center">
+                    <span className="material-icons-outlined text-indigo-400 mr-2 text-xl">school</span>Topic Explanation
                 </h3>
-                <div className="text-sm text-gray-300 leading-relaxed prose prose-sm prose-invert max-w-none">
-                   {renderParagraphs(currentTopicExplanation)}
+                <div className="bg-gray-700/20 p-1.5 sm:p-2 rounded-lg border border-gray-600/40 divide-y divide-gray-700/50">
+                    <CollapsibleSection title="Core Concepts Explained" content={coreConcepts} isExpandedInitially={false} iconName="lightbulb" />
+                    <CollapsibleSection title="Line-by-Line Code Breakdown" content={lineByLineBreakdown} isExpandedInitially={false} iconName="segment" />
+                    <CollapsibleSection title="Code Execution Flow & Data Transformation" content={executionFlowAndDataTransformation} isExpandedInitially={false} iconName="data_object" />
                 </div>
 
-                {/* Additional Explanation Area */}
-                {additionalTopicExplanations.map((explanation, index) => (
-                    <div key={index} className="mt-4 pt-3 border-t border-gray-700/50">
-                        <h4 className="text-sm font-semibold text-gray-100 mb-2 flex items-center gap-1">
-                             <span className="material-icons-outlined text-sm text-indigo-400">subdirectory_arrow_right</span>
-                             Further Elaboration (Level {index + 1}):
-                        </h4>
-                        <div className="text-sm text-gray-300 leading-relaxed prose prose-sm prose-invert max-w-none">
-                            {renderParagraphs(explanation)}
-                        </div>
-                    </div>
-                ))}
-
-                {elaborationLevel < MAX_ELABORATION_LEVELS && !isFetchingAdditionalExplanation && !additionalExplanationError && (
-                     <button
-                        type="button"
-                        onClick={handleFetchAdditionalExplanation}
-                        className="mt-3 bg-gray-600 hover:bg-gray-500 text-white font-medium py-1.5 px-3 rounded-md flex items-center justify-center gap-1 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1 focus:ring-offset-gray-800 text-xs shadow"
-                    >
-                        <span className="material-icons-outlined text-sm">read_more</span>
-                        {elaborationButtonText}
-                    </button>
-                )}
-                {isFetchingAdditionalExplanation && (
-                    <div className="mt-3 flex items-center text-xs text-gray-400">
-                        <div className="w-3.5 h-3.5 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin mr-2"></div>
-                        <span>Fetching more details (Level {elaborationLevel + 1})...</span>
-                    </div>
-                )}
-                {additionalExplanationError && !isFetchingAdditionalExplanation && <div className="mt-3"><ErrorMessage message={additionalExplanationError}/></div>}
-
-
-                {/* Follow-up Question Area */}
                 <div className="mt-4 pt-4 border-t border-gray-700/70 space-y-3">
                     <div>
-                        <label htmlFor="follow-up-question" className="block text-xs font-medium text-gray-400 mb-1.5">Ask a Follow-up Question:</label>
+                        <label htmlFor="follow-up-question" className="block text-xs font-medium text-gray-400 mb-1.5">Ask a Follow-up Question about the Topic:</label>
                         <textarea
                             id="follow-up-question" rows={2} value={followUpQuestionText} onChange={(e) => setFollowUpQuestionText(e.target.value)}
-                            placeholder="Type your question about this topic..."
+                            placeholder="Type your question..."
                             className="w-full bg-gray-700/60 border border-gray-600 text-gray-200 rounded-md p-2 text-xs focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 placeholder-gray-500 transition-colors custom-scrollbar-small"
                             disabled={isAskingFollowUp}
                         />
@@ -296,7 +307,7 @@ export const ResultDisplay: React.FC<ResultDisplayProps> = ({
                                     <span className="material-icons-outlined text-sm text-indigo-400">assistant</span>AI's Answer:
                                 </h5>
                                 <div className="text-xs text-gray-300 leading-relaxed whitespace-pre-wrap prose prose-xs prose-invert max-w-none">
-                                   {renderParagraphs(followUpAnswer)}
+                                   {renderParagraphsForFollowUp(followUpAnswer)}
                                 </div>
                             </div>
                         )}
@@ -306,7 +317,6 @@ export const ResultDisplay: React.FC<ResultDisplayProps> = ({
 
             <div className="border-t border-gray-700/60"></div>
 
-            {/* Example Code Section */}
             <section aria-labelledby="example-code-title">
                 <h3 id="example-code-title" className="text-lg font-semibold text-white mb-3 flex items-center">
                     <span className="material-icons-outlined text-indigo-400 mr-2 text-xl">code_blocks</span>Example Code
@@ -354,16 +364,55 @@ export const ResultDisplay: React.FC<ResultDisplayProps> = ({
             </section>
 
             <div className="border-t border-gray-700/60"></div>
-
-            {/* Practice Question Section */}
+            
+            {practiceSection && instructionLevels.length > 0 && (
             <section aria-labelledby="practice-question-title">
                 <h3 id="practice-question-title" className="text-lg font-semibold text-white mb-3 flex items-center">
                     <span className="material-icons-outlined text-indigo-400 mr-2 text-xl">quiz</span>Practice Question
                 </h3>
                 <div className="text-sm text-gray-300 mb-4 leading-relaxed prose prose-sm prose-invert max-w-none">
-                    {renderParagraphs(result.practiceQuestion)}
+                     {practiceSection.questionText.split('\n').map((line, index) => <p key={index}>{line}</p>)}
                 </div>
                 
+                <div className="mb-4">
+                    <h4 className="text-md font-semibold text-gray-100 mb-2 flex items-center">
+                         <span className="material-icons-outlined text-base text-indigo-400 mr-1.5">integration_instructions</span>
+                        Instructions to Solve (Level {currentInstructionLevelIndex + 1} of {instructionLevels.length}):
+                    </h4>
+                    {renderInstructionList(currentInstructionsContent)}
+                    
+                    <div className="mt-3 flex flex-wrap gap-2">
+                        {currentInstructionLevelIndex < MAX_INSTRUCTION_LEVEL_INDEX && (
+                            <button 
+                                type="button" 
+                                onClick={handleMoreInstructions}
+                                className="bg-gray-600 hover:bg-gray-500 text-white font-medium py-1.5 px-3 rounded-md flex items-center gap-1 transition-colors text-xs shadow focus:outline-none focus:ring-1 focus:ring-indigo-500 ring-offset-1 ring-offset-gray-800"
+                            >
+                                <span className="material-icons-outlined text-sm">unfold_more</span>
+                                More Instructions
+                            </button>
+                        )}
+                        <button 
+                            type="button" 
+                            onClick={() => setShowSolution(!showSolution)}
+                            className="bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-1.5 px-3 rounded-md flex items-center gap-1 transition-colors text-xs shadow focus:outline-none focus:ring-1 focus:ring-indigo-400 ring-offset-1 ring-offset-gray-800"
+                        >
+                            <span className="material-icons-outlined text-sm">{showSolution ? 'visibility_off' : 'visibility'}</span>
+                            {showSolution ? 'Hide Solution' : 'Show Solution'}
+                        </button>
+                    </div>
+
+                    {showSolution && practiceSection.solutionCode && (
+                        <div className="mt-4 p-3 bg-gray-700/30 rounded-lg border border-gray-600/50">
+                            <h5 className="text-sm font-semibold text-gray-100 mb-2">AI Generated Solution:</h5>
+                            <CodeBlock code={practiceSection.solutionCode} language={language} idSuffix="solution" />
+                            {practiceSection.solutionOutput && (
+                                <TerminalOutput output={practiceSection.solutionOutput} title="Solution Output" />
+                            )}
+                        </div>
+                    )}
+                </div>
+
                 <div>
                     <label htmlFor="practice-solution" className="block text-sm font-medium text-gray-400 mb-1.5">
                         Your Solution ({LanguageDisplayNames[language || SupportedLanguage.UNKNOWN]}):
@@ -401,14 +450,14 @@ export const ResultDisplay: React.FC<ResultDisplayProps> = ({
                                  <div className={`mb-2 p-2 rounded-md text-xs font-medium flex items-center border ${
                                      userSolutionAnalysis.isCorrect 
                                      ? 'bg-indigo-600/10 border-indigo-600/25 text-indigo-300' 
-                                     : 'bg-red-700/20 border-red-600/40 text-red-300' // Changed from yellow to red
+                                     : 'bg-red-700/20 border-red-600/40 text-red-300' 
                                  }`}>
                                    <span className={`material-icons-outlined mr-1.5 text-sm ${
                                        userSolutionAnalysis.isCorrect 
                                        ? 'text-indigo-400' 
-                                       : 'text-red-400' // Changed icon color
+                                       : 'text-red-400' 
                                        }`}>
-                                       {userSolutionAnalysis.isCorrect ? 'verified' : 'error_outline'} {/* Changed icon */}
+                                       {userSolutionAnalysis.isCorrect ? 'verified' : 'error_outline'} 
                                     </span>
                                     {userSolutionAnalysis.isCorrect ? 'AI Assessment: Looks Correct!' : 'AI Assessment: Needs Revision.'}
                                 </div>
@@ -417,36 +466,16 @@ export const ResultDisplay: React.FC<ResultDisplayProps> = ({
                             <div className="mt-2.5">
                                 <h5 className="text-xs font-semibold text-gray-200 mb-1">Detailed Feedback:</h5>
                                 <div className="text-xs text-gray-300 leading-relaxed whitespace-pre-wrap prose prose-xs prose-invert max-w-none">
-                                    {renderParagraphs(userSolutionAnalysis.feedback)}
+                                    {userSolutionAnalysis.feedback.split('\n').map((line, index) => <p key={index}>{line}</p>)}
                                 </div>
                             </div>
                         </div>
                     )}
                 </div>
             </section>
-
-             {result.instructions && result.instructions.trim() !== "" && (
-                <>
-                    <div className="border-t border-gray-700/60"></div>
-                    <section aria-labelledby="instructions-title">
-                        <h3 id="instructions-title" className="text-lg font-semibold text-white mb-3 flex items-center">
-                            <span className="material-icons-outlined text-indigo-400 mr-2 text-xl">integration_instructions</span>Instructions to Solve
-                        </h3>
-                        <ul className="list-none text-sm text-gray-300 space-y-2 leading-relaxed">
-                            {result.instructions.split('\n').map((line, index) => {
-                                const trimmedLine = line.trim().replace(/^(\d+\.|-|\*|\u2022|Step\s*\d*:)\s*/i, '');
-                                if (trimmedLine) return (
-                                    <li key={index} className="flex items-start pl-1">
-                                        <span className="material-icons-outlined text-indigo-500 text-base mr-2.5 mt-px flex-shrink-0">chevron_right</span>
-                                        <span>{trimmedLine}</span>
-                                    </li>
-                                ); 
-                                return null;
-                            })}
-                        </ul>
-                    </section>
-                </>
             )}
         </div>
     );
 };
+
+export const ResultDisplay = React.memo(ResultDisplayComponent);

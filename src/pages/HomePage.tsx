@@ -1,4 +1,3 @@
-
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { toast } from 'react-hot-toast';
 import Editor from 'react-simple-code-editor';
@@ -13,6 +12,7 @@ import { SettingsPanel } from '../components/SettingsPanel';
 import { FullScreenCodeModal } from '../components/FullScreenCodeModal'; // Import the new modal
 import { useGlobalSettings } from '../hooks/useGlobalSettings';
 import { analyzeCodeWithGemini, analyzeConceptWithGemini } from '../services/geminiService';
+import { escapeHtml } from '../utils/textUtils'; // Import centralized utility
 import {
     AnalysisResult,
     SupportedLanguage,
@@ -21,7 +21,8 @@ import {
     SupportedLanguage as LangEnum,
     ExampleDifficulty,
     ActivityItem,
-    ActivityType
+    ActivityType,
+    PracticeMaterial 
 } from '../types';
 import { getPrismLanguageString } from '../components/CodeBlock';
 
@@ -34,7 +35,7 @@ interface HomePageProps {
     onClearAllActivities: () => void;
 }
 
-export const HomePage = ({ initialActivity, onBackToDashboard, onAddActivity, onClearAllActivities }: HomePageProps): JSX.Element => {
+const HomePageInternal: React.FC<HomePageProps> = ({ initialActivity, onBackToDashboard, onAddActivity, onClearAllActivities }) => {
     const [isLoading, setIsLoading] = useState<boolean>(false);
     const [error, setError] = useState<string | null>(null);
     const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
@@ -58,14 +59,13 @@ export const HomePage = ({ initialActivity, onBackToDashboard, onAddActivity, on
     const [pastedCodeLanguage, setPastedCodeLanguage] = useState<SupportedLanguage | null>(LangEnum.PYTHON);
 
     const [currentLanguageForAnalysis, setCurrentLanguageForAnalysis] = useState<SupportedLanguage | null>(null);
-    const [difficultyForCurrentAnalysis, setDifficultyForCurrentAnalysis] = useState<ExampleDifficulty | null>(null);
+    const [difficultyForCurrentAnalysis, setDifficultyForCurrentAnalysis] = useState<ExampleDifficulty>(preferredInitialDifficulty);
     const [originalInputForAnalysis, setOriginalInputForAnalysis] = useState<string>("");
 
     const [isSettingsPanelOpen, setIsSettingsPanelOpen] = useState(false);
     const settingsPanelRef = useRef<HTMLDivElement>(null);
     const settingsButtonRef = useRef<HTMLButtonElement>(null);
 
-    // State for FullScreenCodeModal
     const [isFullScreenCodeModalOpen, setIsFullScreenCodeModalOpen] = useState<boolean>(false);
     const [fullScreenCodeContent, setFullScreenCodeContent] = useState<string>('');
     const [fullScreenCodeLanguage, setFullScreenCodeLanguage] = useState<SupportedLanguage>(LangEnum.UNKNOWN);
@@ -86,14 +86,14 @@ export const HomePage = ({ initialActivity, onBackToDashboard, onAddActivity, on
         }
         setAnalysisResult(null);
         setCurrentLanguageForAnalysis(null);
-        setDifficultyForCurrentAnalysis(null);
+        setDifficultyForCurrentAnalysis(preferredInitialDifficulty); 
         setOriginalInputForAnalysis("");
 
         if (apiKeyMissing && keepApiKeyError && !error?.includes("Critical Setup Error")) {
              const errMsg = "Critical Setup Error: The API_KEY environment variable is missing. AI functionalities are disabled.";
              setError(errMsg);
         }
-    }, [apiKeyMissing, error]);
+    }, [apiKeyMissing, error, preferredInitialDifficulty]);
 
     useEffect(() => {
         if (!process.env.API_KEY) {
@@ -104,32 +104,31 @@ export const HomePage = ({ initialActivity, onBackToDashboard, onAddActivity, on
     }, []);
 
     useEffect(() => {
-        const performInitialAnalysis = async (input: string, lang: SupportedLanguage, type: ActivityItem['type'], title: string) => {
+        const performInitialAnalysis = async (input: string, lang: SupportedLanguage, type: ActivityItem['type'], title: string, difficultyToUse: ExampleDifficulty) => {
             setIsLoading(true); setError(null); setAnalysisResult(null);
             setOriginalInputForAnalysis(input);
             setCurrentLanguageForAnalysis(lang);
+            setDifficultyForCurrentAnalysis(difficultyToUse);
             toast(`Analyzing: ${title}...`, {icon: '⏳'});
             try {
                 let result: AnalysisResult;
-                const difficulty = initialActivity?.analysisResult?.exampleDifficulty || preferredInitialDifficulty;
-
+                
                 if (type === 'file_analysis' || type === 'paste_analysis') {
-                    result = await analyzeCodeWithGemini(input, lang, difficulty);
+                    result = await analyzeCodeWithGemini(input, lang, difficultyToUse);
                 } else if (type === 'concept_explanation') {
-                    result = await analyzeConceptWithGemini(input, lang, difficulty);
+                    result = await analyzeConceptWithGemini(input, lang, difficultyToUse);
                 } else {
                     throw new Error("Unsupported activity type for initial analysis.");
                 }
                 setAnalysisResult(result);
-                setDifficultyForCurrentAnalysis(difficulty);
-
-                if (!initialActivity?.analysisResult) {
+                
+                if (!initialActivity?.analysisResult) { 
                     const activityTypeMap: Record<InputMode, ActivityType> = {
                         fileUpload: 'file_analysis',
                         conceptTyping: 'concept_explanation',
                         pasteCode: 'paste_analysis',
                     };
-                    const currentActivityType = activityTypeMap[inputMode];
+                    const currentActivityType = activityTypeMap[inputMode]; 
                     const activityTitle = initialActivity?.title || (inputMode === 'fileUpload' && selectedFile?.name ? selectedFile.name : inputMode === 'conceptTyping' ? conceptText : "Pasted Code");
                     const activityIcon = inputMode === 'fileUpload' ? 'description' : inputMode === 'conceptTyping' ? 'lightbulb' : 'content_paste_search';
                     const activityColor = inputMode === 'fileUpload' ? 'text-indigo-500' : inputMode === 'conceptTyping' ? 'text-green-500' : 'text-yellow-500';
@@ -139,12 +138,13 @@ export const HomePage = ({ initialActivity, onBackToDashboard, onAddActivity, on
                         type: currentActivityType,
                         title: activityTitle || "Re-analyzed item",
                         timestamp: new Date(),
-                        summary: `Successfully re-analyzed: ${result.topicExplanation.substring(0, 50)}...`,
+                        summary: `Successfully re-analyzed: ${result.topicExplanation.coreConcepts.substring(0, 50)}...`,
                         icon: activityIcon,
                         colorClass: activityColor,
                         language: lang,
                         originalInput: input,
                         analysisResult: result,
+                        analysisDifficulty: difficultyToUse
                     });
                 }
                 toast.success("Analysis complete!");
@@ -176,16 +176,18 @@ export const HomePage = ({ initialActivity, onBackToDashboard, onAddActivity, on
                 setPastedCodeLanguage(initialActivity.language || LangEnum.PYTHON);
             }
             setInputMode(modeToSet);
+            
+            const difficultyForLoadedActivity = initialActivity.analysisDifficulty || preferredInitialDifficulty;
 
             if (initialActivity.analysisResult) {
                 setAnalysisResult(initialActivity.analysisResult);
                 setCurrentLanguageForAnalysis(initialActivity.language || null);
-                setDifficultyForCurrentAnalysis(initialActivity.analysisResult.exampleDifficulty || preferredInitialDifficulty);
+                setDifficultyForCurrentAnalysis(difficultyForLoadedActivity);
                 setOriginalInputForAnalysis(initialActivity.originalInput || "");
                 setError(null); setIsLoading(false);
                 toast(`Loaded previous analysis: ${initialActivity.title}`, {icon: '📂'});
             } else if (initialActivity.originalInput && initialActivity.language && initialActivity.language !== LangEnum.UNKNOWN) {
-                performInitialAnalysis(initialActivity.originalInput, initialActivity.language, initialActivity.type, initialActivity.title);
+                performInitialAnalysis(initialActivity.originalInput, initialActivity.language, initialActivity.type, initialActivity.title, difficultyForLoadedActivity);
             } else if (initialActivity.originalInput && (!initialActivity.language || initialActivity.language === LangEnum.UNKNOWN)) {
                 setError("Cannot perform analysis: Language for the initial activity is missing or unknown.");
                 setOriginalInputForAnalysis(initialActivity.originalInput);
@@ -218,16 +220,16 @@ export const HomePage = ({ initialActivity, onBackToDashboard, onAddActivity, on
     const toggleSettingsPanel = () => setIsSettingsPanelOpen(prev => !prev);
 
     const handleInputModeChange = (newMode: InputMode) => {
-        if (inputMode !== newMode || initialActivity) {
+        if (inputMode !== newMode || initialActivity) { 
             resetAnalysisState(apiKeyMissing);
             setInputMode(newMode);
-            if (newMode !== 'fileUpload' || !initialActivity || initialActivity.type !== 'file_analysis') {
+            if (newMode !== 'fileUpload' || (initialActivity && initialActivity.type !== 'file_analysis')) {
                  setSelectedFile(null); setCodeContent(null); setFileLanguage(null);
             }
-            if (newMode !== 'conceptTyping' || !initialActivity || initialActivity.type !== 'concept_explanation') {
+            if (newMode !== 'conceptTyping' || (initialActivity && initialActivity.type !== 'concept_explanation')) {
                 setConceptText('');
             }
-            if (newMode !== 'pasteCode' || !initialActivity || initialActivity.type !== 'paste_analysis') {
+            if (newMode !== 'pasteCode' || (initialActivity && initialActivity.type !== 'paste_analysis')) {
                 setPastedCodeText('');
             }
 
@@ -302,6 +304,8 @@ export const HomePage = ({ initialActivity, onBackToDashboard, onAddActivity, on
         setAnalysisResult(null); setIsLoading(true);
 
         const initialDifficultyForThisAnalysis = preferredInitialDifficulty;
+        setDifficultyForCurrentAnalysis(initialDifficultyForThisAnalysis); 
+
         let submittedOriginalInput = "";
         let activityType: ActivityType = 'file_analysis';
         let activityTitle = "";
@@ -345,7 +349,7 @@ export const HomePage = ({ initialActivity, onBackToDashboard, onAddActivity, on
             }
 
             setAnalysisResult(result); setCurrentLanguageForAnalysis(currentLang);
-            setDifficultyForCurrentAnalysis(initialDifficultyForThisAnalysis); setOriginalInputForAnalysis(submittedOriginalInput);
+            setOriginalInputForAnalysis(submittedOriginalInput);
             if (error && !error.includes("Critical Setup Error")) setError(null);
 
             if (onAddActivity && currentLang) {
@@ -354,12 +358,13 @@ export const HomePage = ({ initialActivity, onBackToDashboard, onAddActivity, on
                     type: activityType,
                     title: activityTitle,
                     timestamp: new Date(),
-                    summary: `${result.topicExplanation.substring(0, 70)}...`,
+                    summary: `${result.topicExplanation.coreConcepts.substring(0, 70)}...`, // Access coreConcepts correctly
                     icon: activityIcon,
                     colorClass: activityColor,
                     language: currentLang,
                     originalInput: submittedOriginalInput,
-                    analysisResult: result,
+                    analysisResult: result, 
+                    analysisDifficulty: initialDifficultyForThisAnalysis,
                 };
                 onAddActivity(newActivity);
             }
@@ -380,10 +385,6 @@ export const HomePage = ({ initialActivity, onBackToDashboard, onAddActivity, on
 
     const handleCloseFullScreenCodeModal = () => {
         setIsFullScreenCodeModalOpen(false);
-        // Optionally reset content if it's large and you want to free memory,
-        // but for this use case, it might not be necessary.
-        // setFullScreenCodeContent('');
-        // setFullScreenCodeLanguage(LangEnum.UNKNOWN);
     };
 
     const isAnalyzeButtonDisabled = isLoading || apiKeyMissing ||
@@ -417,17 +418,28 @@ export const HomePage = ({ initialActivity, onBackToDashboard, onAddActivity, on
     }
 
     const prismLanguageForPastedCodeEditor = getPrismLanguageString(pastedCodeLanguage || LangEnum.PYTHON);
-    const escapeHtml = (unsafe: string): string => unsafe.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+    
     const robustHighlight = (code: string, lang: string) => {
         if (typeof Prism === 'undefined' || !Prism.highlight || !code) return escapeHtml(code || '');
-        const grammar = Prism.languages[lang] || Prism.languages.clike;
-        if (grammar) { try { return Prism.highlight(code, grammar, lang); } catch (e) { console.warn(`Prism highlighting failed for ${lang}:`, e); } }
-        return escapeHtml(code);
+        const grammar = Prism.languages[lang] || Prism.languages.clike; // Fallback to clike if specific lang not found
+        if (grammar) { 
+            try { 
+                return Prism.highlight(code, grammar, lang); 
+            } catch (e) { 
+                console.warn(`Prism highlighting failed for ${lang} in editor:`, e); 
+            } 
+        }
+        return escapeHtml(code); // Fallback for unhighlighted code
     };
+
+
+    const stickyTopOffset = "md:top-[calc(3.5rem+1.5rem)]"; 
+    const panelHeight = "md:h-[calc(100vh-3.5rem-3rem)]";
+
 
     return (
         <div className="flex flex-col min-h-screen bg-gray-900 text-gray-200">
-            <header className="py-3 px-4 sm:px-6 flex justify-between items-center sticky top-0 z-50 bg-gray-900/80 backdrop-blur-md border-b border-gray-700/60">
+            <header className="py-3 px-4 sm:px-6 flex justify-between items-center sticky top-0 z-50 bg-gray-900/80 backdrop-blur-md border-b border-gray-700/60 h-14">
                 <div className="flex items-center">
                     {onBackToDashboard && (
                          <button onClick={onBackToDashboard} className="text-gray-300 hover:text-white p-2 rounded-full hover:bg-gray-700/60 mr-2 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-gray-900" aria-label="Back to Dashboard">
@@ -453,10 +465,10 @@ export const HomePage = ({ initialActivity, onBackToDashboard, onAddActivity, on
             </header>
 
             <main className="flex-grow flex flex-col md:flex-row p-4 sm:p-6 gap-4 sm:gap-6">
-                <aside className="w-full md:w-[32rem] lg:w-[36rem] md:flex-shrink-0 home-panel p-4 sm:p-6 flex flex-col">
-                    <div className="flex-grow space-y-5 overflow-y-auto custom-scrollbar-small pr-1">
+                 <aside className={`w-full md:w-[32rem] lg:w-[36rem] md:flex-shrink-0 bg-gray-800 rounded-xl shadow-2xl p-4 sm:p-6 flex flex-col mb-6 md:mb-0 md:sticky ${stickyTopOffset} ${panelHeight}`}>
+                    <div className="flex-grow space-y-5 overflow-y-auto custom-scrollbar-small pr-1"> 
                         <div>
-                            <h2 className="text-md sm:text-lg font-semibold text-white mb-2">Input Method</h2>
+                            <h2 className="text-sm sm:text-base font-semibold text-white mb-2">Input Method</h2>
                             <div className="grid grid-cols-3 gap-2">
                                 {(['fileUpload', 'conceptTyping', 'pasteCode'] as InputMode[]).map(mode => {
                                     let icon = 'description'; let label = 'File';
@@ -484,7 +496,7 @@ export const HomePage = ({ initialActivity, onBackToDashboard, onAddActivity, on
                                 selectedFile={selectedFile}
                                 selectedLanguage={fileLanguage}
                                 onLanguageChange={handleFileLanguageChange}
-                                onSubmit={handleSubmit}
+                                onSubmit={handleSubmit} 
                                 isLoading={isLoading}
                             />
                         )}
@@ -580,16 +592,16 @@ export const HomePage = ({ initialActivity, onBackToDashboard, onAddActivity, on
 
                 </aside>
 
-                <section className="flex-grow home-panel p-4 sm:p-6 md:p-8 overflow-y-auto custom-scrollbar-small flex flex-col">
+                <section className={`flex-grow bg-gray-800 rounded-xl shadow-2xl p-4 sm:p-6 md:p-8 flex flex-col ${panelHeight} md:overflow-y-auto custom-scrollbar-small`}>
                     {isLoading && ( <LoadingSpinner loadingText={loadingText} /> )}
 
                     {!isLoading && error && <ErrorMessage message={error} />}
 
-                    {!isLoading && !error && analysisResult && currentLanguageForAnalysis && difficultyForCurrentAnalysis && originalInputForAnalysis && (
+                    {!isLoading && !error && analysisResult && currentLanguageForAnalysis && originalInputForAnalysis && (
                         <ResultDisplay
                             result={analysisResult}
                             language={currentLanguageForAnalysis}
-                            difficultyOfProvidedExample={difficultyForCurrentAnalysis}
+                            difficultyOfProvidedExample={difficultyForCurrentAnalysis} 
                             originalInputContext={originalInputForAnalysis}
                             originalInputType={inputMode === 'conceptTyping' ? 'concept' : 'code'}
                         />
@@ -621,3 +633,4 @@ export const HomePage = ({ initialActivity, onBackToDashboard, onAddActivity, on
         </div>
     );
 };
+export const HomePage = React.memo(HomePageInternal);

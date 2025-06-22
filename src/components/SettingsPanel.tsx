@@ -1,4 +1,3 @@
-
 import React from 'react';
 import toast from 'react-hot-toast';
 import { ExampleDifficultyLevels, ExampleDifficultyDisplayNames, ActivityItem } from '../types';
@@ -9,7 +8,7 @@ interface SettingsPanelProps {
     onClearAllActivities: () => void;
 }
 
-export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onAddActivity, onClearAllActivities }) => {
+const SettingsPanelComponent: React.FC<SettingsPanelProps> = ({ onAddActivity, onClearAllActivities }) => {
     const { preferredInitialDifficulty, setPreferredInitialDifficulty } = useGlobalSettings();
 
     const renderPlaceholder = (text: string) => (
@@ -19,15 +18,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onAddActivity, onC
     const handleClearData = () => {
         if (window.confirm("Are you sure you want to clear all recent activity and analysis summary data? This action cannot be undone.")) {
             onClearAllActivities();
-            onAddActivity({
-                id: Date.now().toString() + "_settings_clear",
-                type: 'settings_update',
-                title: "All Activity Data Cleared",
-                timestamp: new Date(),
-                summary: "Recent activities and summaries were reset from settings.",
-                icon: 'delete_sweep',
-                colorClass: 'text-red-500', 
-            });
+            // Removed the onAddActivity call for "All Activity Data Cleared"
             toast.success("All activity data has been cleared.");
         } else {
             toast.error("Data clearing cancelled.", { icon: 'ℹ️' });
@@ -118,3 +109,5 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onAddActivity, onC
         </div>
     );
 };
+
+export const SettingsPanel = React.memo(SettingsPanelComponent);

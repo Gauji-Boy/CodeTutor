@@ -1,4 +1,3 @@
-
 import React from 'react';
 import type { SupportedLanguage } from '../types';
 import { LanguageDisplayNames, AcceptedFileExtensions, SupportedLanguage as LangEnum } from '../types';
@@ -12,7 +11,7 @@ interface FileUploadProps {
     isLoading: boolean;
 }
 
-export const FileUpload: React.FC<FileUploadProps> = ({
+const FileUploadComponent: React.FC<FileUploadProps> = ({
     onFileSelect,
     selectedFile,
     selectedLanguage,
@@ -123,23 +122,8 @@ export const FileUpload: React.FC<FileUploadProps> = ({
                     </select>
                 </div>
             )}
-            {/* The main analyze button is now in HomePage.tsx for all modes */}
-            {/* 
-            <button
-                type="button"
-                onClick={onSubmit} // This button is specifically for FileUpload mode
-                disabled={isSubmitDisabled}
-                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2.5 px-4 rounded-md flex items-center justify-center space-x-2 transition-colors font-medium disabled:bg-gray-600 disabled:text-gray-400 disabled:cursor-not-allowed mt-2 text-sm shadow-md"
-                aria-label="Analyze uploaded code"
-            >
-                {isLoading ? (
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                ) : (
-                    <span className="material-icons-outlined text-lg">analytics</span>
-                )}
-                <span>{isLoading ? 'Analyzing...' : 'Analyze Code'}</span>
-            </button> 
-            */}
         </div>
     );
 };
+
+export const FileUpload = React.memo(FileUploadComponent);

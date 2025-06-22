@@ -8,13 +8,14 @@ export default defineConfig(({ mode }) => {
   // Load env file based on mode (development, production)
   // The third argument specifies the directory to look for .env files (project root)
   // The fourth argument '' ensures all env variables are loaded, not just VITE_ prefixed ones
-  const env = loadEnv(mode, process.cwd(), '');
+  const env = loadEnv(mode, (process as NodeJS.Process).cwd(), ''); // 'process' now refers to the imported, correctly typed object
 
   return {
     plugins: [react()],
     define: {
       // Make API_KEY available as process.env.API_KEY in the client-side code
       // Vite statically replaces these during build.
+      // This 'process.env.API_KEY' is a string key and should not be changed.
       'process.env.API_KEY': JSON.stringify(env.API_KEY),
       // You can define other environment variables here if needed
       // 'process.env.NODE_ENV': JSON.stringify(mode),

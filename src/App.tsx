@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useCallback } from 'react';
 import DashboardPage from './pages/DashboardPage';
 import { HomePage } from './pages/HomePage'; // The analysis page
@@ -16,9 +17,11 @@ const App: React.FC = () => {
             const stored = localStorage.getItem(ACTIVITY_STORAGE_KEY);
             if (stored) {
                 const parsedActivities = JSON.parse(stored) as any[];
+                // Ensure timestamp is a Date object and analysisDifficulty is present
                 return parsedActivities.map(activity => ({
                     ...activity,
-                    timestamp: new Date(activity.timestamp), // Ensure timestamp is a Date object
+                    timestamp: new Date(activity.timestamp), 
+                    analysisDifficulty: activity.analysisDifficulty || 'easy', // Fallback if old data
                 })).sort((a,b) => b.timestamp.getTime() - a.timestamp.getTime());
             }
         } catch (error) {
@@ -29,9 +32,11 @@ const App: React.FC = () => {
 
     useEffect(() => {
         try {
+            // Ensure analysisDifficulty is stored
             const activitiesToStore = allActivities.map(activity => ({
                 ...activity,
-                timestamp: activity.timestamp.toISOString(), // Store timestamp as ISO string
+                timestamp: activity.timestamp.toISOString(), 
+                analysisDifficulty: activity.analysisDifficulty || 'easy', // Ensure it's present for storage
             }));
             localStorage.setItem(ACTIVITY_STORAGE_KEY, JSON.stringify(activitiesToStore));
         } catch (error) {
@@ -41,7 +46,12 @@ const App: React.FC = () => {
 
     const addActivity = useCallback((newActivity: ActivityItem) => {
         setAllActivities(prevActivities => {
-            const updatedActivities = [newActivity, ...prevActivities];
+            // Ensure new activity has analysisDifficulty, defaulting if somehow missed
+            const activityToAdd = {
+                ...newActivity,
+                analysisDifficulty: newActivity.analysisDifficulty || 'easy' 
+            };
+            const updatedActivities = [activityToAdd, ...prevActivities];
             // Sort by timestamp descending and limit the number of activities
             return updatedActivities
                 .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
@@ -65,7 +75,11 @@ const App: React.FC = () => {
             toast.error("Settings updates cannot be reloaded into the analysis view.", { icon: 'ℹ️', duration: 4000 });
             return;
         }
-        setActivityToLoad(activity);
+        // Ensure activityToLoad has analysisDifficulty, defaulting if necessary from older stored items
+        setActivityToLoad({
+            ...activity,
+            analysisDifficulty: activity.analysisDifficulty || 'easy' 
+        });
         setCurrentView('analysis');
     };
 
@@ -89,8 +103,8 @@ const App: React.FC = () => {
                 <DashboardPage
                     activities={allActivities}
                     onViewActivityDetail={navigateToAnalysis}
-                    onAddActivity={addActivity} // Pass addActivity
-                    onClearAllActivities={clearAllActivities} // Pass clearAllActivities
+                    onAddActivity={addActivity} 
+                    onClearAllActivities={clearAllActivities} 
                 />
             )}
             {currentView === 'analysis' && (

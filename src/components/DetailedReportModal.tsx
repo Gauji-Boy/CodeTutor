@@ -1,4 +1,3 @@
-
 import React from 'react';
 import toast from 'react-hot-toast';
 import { ActivityItem, ActivityType, SupportedLanguage, LanguageDisplayNames } from '../types';
@@ -22,7 +21,7 @@ interface LanguageFocus {
     count: number;
 }
 
-export const DetailedReportModal: React.FC<DetailedReportModalProps> = ({ isOpen, onClose, activities }) => {
+const DetailedReportModalComponent: React.FC<DetailedReportModalProps> = ({ isOpen, onClose, activities }) => {
     if (!isOpen) return null;
 
     const calculateActivityCounts = (): ActivityCounts => {
@@ -182,3 +181,5 @@ export const DetailedReportModal: React.FC<DetailedReportModalProps> = ({ isOpen
         </div>
     );
 };
+
+export const DetailedReportModal = React.memo(DetailedReportModalComponent);
