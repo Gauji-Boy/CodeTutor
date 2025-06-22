@@ -16,8 +16,7 @@ import { LanguageDisplayNames } from '../types';
 import { TerminalOutput } from './TerminalOutput';
 import { 
     checkUserSolutionWithGemini, 
-    getExampleByDifficulty,
-    askFollowUpQuestionWithGemini
+    getExampleByDifficulty, askFollowUpQuestionWithGemini, getMoreInstructionsWithGemini
 } from '../services/geminiService'; 
 import { ErrorMessage } from './ErrorMessage'; 
 import { CodeBlock, getPrismLanguageString } from './CodeBlock'; 
@@ -54,7 +53,7 @@ const CollapsibleSectionComponent: React.FC<CollapsibleSectionProps> = ({ title,
             </p>
         ));
     };
-    
+
     return (
         <div className="py-2">
             <button
@@ -125,27 +124,40 @@ const ResultDisplayComponent: React.FC<ResultDisplayProps> = ({
     const [currentExampleCode, setCurrentExampleCode] = useState<string>(result.exampleCode);
     const [currentExampleCodeOutput, setCurrentExampleCodeOutput] = useState<string>(result.exampleCodeOutput);
     const [selectedExampleDifficulty, setSelectedExampleDifficulty] = useState<ExampleDifficulty>(difficultyOfProvidedExample);
-    
+
     const [isExampleLoading, setIsExampleLoading] = useState<boolean>(false);
     const [exampleError, setExampleError] = useState<string | null>(null);
     const [showExampleOutput, setShowExampleOutput] = useState(false);
-    
+
     const [practiceSolution, setPracticeSolution] = useState('');
     const [userSolutionAnalysis, setUserSolutionAnalysis] = useState<UserSolutionAnalysis | null>(null);
     const [isCheckingSolution, setIsCheckingSolution] = useState<boolean>(false);
     const [solutionError, setSolutionError] = useState<string | null>(null);
-    
+
     const [followUpQuestionText, setFollowUpQuestionText] = useState<string>('');
     const [followUpAnswer, setFollowUpAnswer] = useState<string | null>(null);
     const [isAskingFollowUp, setIsAskingFollowUp] = useState<boolean>(false);
     const [followUpError, setFollowUpError] = useState<string | null>(null);
 
-    const [currentInstructionLevelIndex, setCurrentInstructionLevelIndex] = useState<number>(0); 
+    const [showUserSolution, setShowUserSolution] = useState<boolean>(false);
+    const [userSolutionInput, setUserSolutionInput] = useState<string>('');
+    const [userSolutionFeedback, setUserSolutionFeedback] = useState<UserSolutionAnalysis | null>(null);
+    const [isCheckingSolution, setIsCheckingSolution] = useState<boolean>(false);
+    const [practiceAttempted, setPracticeAttempted] = useState<boolean>(false);
+
+    // Progressive instruction states
+    const [displayedInstructions, setDisplayedInstructions] = useState<string[]>([]);
+    const [currentInstructionLevel, setCurrentInstructionLevel] = useState<number>(1);
+    const [hasMoreInstructions, setHasMoreInstructions] = useState<boolean>(true);
+    const [isLoadingInstructions, setIsLoadingInstructions] = useState<boolean>(false);
     const [showSolution, setShowSolution] = useState<boolean>(false);
+    const [isLoadingSolution, setIsLoadingSolution] = useState<boolean>(false);
+
+    const [instructionsExpanded, setInstructionsExpanded] = useState<boolean>(false);
 
     const { coreConcepts, lineByLineBreakdown, executionFlowAndDataTransformation } = result.topicExplanation;
     const { practiceSection } = result; 
-    const instructionLevels = practiceSection.instructionLevels || [];
+    const instructionLevels = practiceSection?.instructionLevels || [];
     const MAX_INSTRUCTION_LEVEL_INDEX = instructionLevels.length - 1;
 
     useEffect(() => {
@@ -165,10 +177,24 @@ const ResultDisplayComponent: React.FC<ResultDisplayProps> = ({
         setIsAskingFollowUp(false);
         setFollowUpError(null);
 
-        setCurrentInstructionLevelIndex(0); 
+        // Progressive Reveal Reset
+        setDisplayedInstructions([]);
+        setCurrentInstructionLevel(1);
+        setHasMoreInstructions(true);
         setShowSolution(false);
 
     }, [result, difficultyOfProvidedExample]);
+
+    useEffect(() => {
+        if (result?.practiceSection?.instructionLevels && result.practiceSection.instructionLevels.length > 0) {
+            setInstructionsExpanded(true);
+            // Initialize with the first level of instructions
+            setDisplayedInstructions([result.practiceSection.instructionLevels[0]]);
+            setCurrentInstructionLevel(1);
+            // Assume there are more levels initially (will be determined by AI)
+            setHasMoreInstructions(result.practiceSection.instructionLevels.length > 1);
+        }
+    }, [result]);
 
     const handleDifficultyChange = useCallback(async (newDifficulty: ExampleDifficulty) => {
         if (newDifficulty === selectedExampleDifficulty && !exampleError && !isExampleLoading) {
@@ -240,11 +266,46 @@ const ResultDisplayComponent: React.FC<ResultDisplayProps> = ({
         }
     }, [followUpQuestionText, coreConcepts, lineByLineBreakdown, executionFlowAndDataTransformation, language, originalInputContext, originalInputType, isAskingFollowUp]);
 
-    const handleMoreInstructions = () => {
-        if (currentInstructionLevelIndex < MAX_INSTRUCTION_LEVEL_INDEX) {
-            setCurrentInstructionLevelIndex(prev => prev + 1);
-            toast.success(`Revealed Level ${currentInstructionLevelIndex + 2} instructions!`, {icon: '📚'});
+    const resetUserSolution = () => {
+        setUserSolutionInput('');
+        setUserSolutionFeedback(null);
+        setPracticeAttempted(false);
+    };
+
+    const handleMoreInstructions = async () => {
+        if (!result?.practiceSection?.questionText) return;
+
+        setIsLoadingInstructions(true);
+        try {
+            const response = await getMoreInstructionsWithGemini(
+                result.practiceSection.questionText,
+                displayedInstructions,
+                language,
+                currentInstructionLevel
+            );
+
+            if (response.instructions.length > 0) {
+                setDisplayedInstructions(prev => [...prev, ...response.instructions]);
+                setCurrentInstructionLevel(response.levelNumber);
+                setHasMoreInstructions(response.hasMoreLevels);
+            } else {
+                setHasMoreInstructions(false);
+                toast.info("No more detailed instructions available for this question.");
+            }
+        } catch (error) {
+            console.error('Error fetching more instructions:', error);
+            toast.error(error instanceof Error ? error.message : 'Failed to get more instructions');
+        } finally {
+            setIsLoadingInstructions(false);
         }
+    };
+
+    const handleShowSolution = async () => {
+        if (!result?.practiceSection?.solutionCode) {
+            toast.error("Solution not available");
+            return;
+        }
+        setShowSolution(true);
     };
 
     const isCheckSolutionDisabled = isCheckingSolution || !practiceSolution.trim();
@@ -258,13 +319,13 @@ const ResultDisplayComponent: React.FC<ResultDisplayProps> = ({
         } catch (e) { console.warn(`Error highlighting practice solution with ${prismLanguageForEditor}:`, e); }
         return escapeHtml(code); 
     };
-    
+
     const renderParagraphsForFollowUp = (text: string) => { 
       if (!text) return null;
       const formattedText = text
         .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') 
         .replace(/\*(.*?)\*/g, '<em>$1</em>');       
-      
+
       return formattedText.split('\n').map((paragraph, index) => (
         <p key={index} dangerouslySetInnerHTML={{ __html: paragraph }}></p>
       ));
@@ -364,7 +425,7 @@ const ResultDisplayComponent: React.FC<ResultDisplayProps> = ({
             </section>
 
             <div className="border-t border-gray-700/60"></div>
-            
+
             {practiceSection && instructionLevels.length > 0 && (
             <section aria-labelledby="practice-question-title">
                 <h3 id="practice-question-title" className="text-lg font-semibold text-white mb-3 flex items-center">
@@ -373,14 +434,14 @@ const ResultDisplayComponent: React.FC<ResultDisplayProps> = ({
                 <div className="text-sm text-gray-300 mb-4 leading-relaxed prose prose-sm prose-invert max-w-none">
                      {practiceSection.questionText.split('\n').map((line, index) => <p key={index}>{line}</p>)}
                 </div>
-                
+
                 <div className="mb-4">
                     <h4 className="text-md font-semibold text-gray-100 mb-2 flex items-center">
                          <span className="material-icons-outlined text-base text-indigo-400 mr-1.5">integration_instructions</span>
                         Instructions to Solve (Level {currentInstructionLevelIndex + 1} of {instructionLevels.length}):
                     </h4>
                     {renderInstructionList(currentInstructionsContent)}
-                    
+
                     <div className="mt-3 flex flex-wrap gap-2">
                         {currentInstructionLevelIndex < MAX_INSTRUCTION_LEVEL_INDEX && (
                             <button 
@@ -440,7 +501,7 @@ const ResultDisplayComponent: React.FC<ResultDisplayProps> = ({
                     </div>
 
                     {solutionError && <div className="mt-2.5"><ErrorMessage message={solutionError} /></div>}
-                    
+
                     {userSolutionAnalysis && !isCheckingSolution && (
                         <div className="mt-4 p-3.5 bg-gray-700/30 rounded-lg border border-gray-600/50 shadow-md">
                             <h4 className="text-sm font-semibold text-gray-100 mb-2 flex items-center gap-1.5">

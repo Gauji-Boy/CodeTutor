@@ -1,4 +1,3 @@
-
 export interface TopicExplanationParts {
     coreConcepts: string;
     lineByLineBreakdown: string;
@@ -7,9 +6,15 @@ export interface TopicExplanationParts {
 
 export interface PracticeMaterial {
     questionText: string;
-    instructionLevels: string[]; // Dynamic array of instruction levels
+    instructionLevels: string[];
     solutionCode: string;
     solutionOutput: string;
+}
+
+export interface InstructionLevelResponse {
+    instructions: string[];
+    hasMoreLevels: boolean;
+    levelNumber: number;
 }
 
 export interface AnalysisResult {
@@ -126,7 +131,7 @@ export interface ActivityItem {
     icon: string; 
     colorClass: string; 
     language?: SupportedLanguage; 
-    
+
     originalInput?: string; 
     analysisResult?: AnalysisResult | null; 
     analysisDifficulty?: ExampleDifficulty; 

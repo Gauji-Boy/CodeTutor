@@ -7,7 +7,8 @@ import {
     ExampleDifficulty,
     ExampleCodeData,
     // TopicExplanationParts, // Not directly used here, but part of AnalysisResult
-    PracticeMaterial
+    PracticeMaterial,
+    InstructionLevelResponse
 } from '../types';
 
 const API_KEY = process.env.API_KEY;
@@ -422,6 +423,83 @@ Respond ONLY with the valid JSON object. Ensure all string values are properly e
             throw error;
        }
         throw new Error(`Failed to generate ${difficulty} example from AI. Try again.`);
+    }
+};
+
+export const getMoreInstructionsWithGemini = async (
+    practiceQuestion: string,
+    currentInstructions: string[],
+    language: SupportedLanguage,
+    currentLevel: number
+): Promise<InstructionLevelResponse> => {
+    if (!ai) throw new Error("Gemini AI client is not initialized. Ensure API_KEY is set.");
+    if (language === SupportedLanguage.UNKNOWN) throw new Error("Cannot generate instructions for an unknown language.");
+
+    const languageName = LanguageDisplayNames[language];
+    const currentInstructionsText = currentInstructions.map((inst, idx) => `Level ${idx + 1}: ${inst}`).join('\n\n');
+
+    const prompt = `
+You are an expert programming tutor. A user is working on a practice question and needs more detailed instructions.
+
+Practice Question: "${practiceQuestion}"
+Programming Language: ${languageName}
+Current Level: ${currentLevel}
+
+Instructions already provided to the user:
+${currentInstructionsText}
+
+Your task is to provide the NEXT level (Level ${currentLevel + 1}) of more detailed, specific instructions for solving this practice question. 
+
+Guidelines:
+- Break down the previous high-level steps into more granular, actionable steps
+- Provide specific coding guidance, function suggestions, or algorithmic details
+- Do not repeat information already provided unless rephrasing for clarity
+- If the practice question is simple and already has sufficient detail, indicate that no more levels are beneficial
+- Focus on practical implementation details that help the user write actual code
+
+Respond with a JSON object containing:
+- "instructions": An array of strings, each representing a detailed step for this level
+- "hasMoreLevels": A boolean indicating if even more detailed levels would be beneficial
+- "levelNumber": The number ${currentLevel + 1}
+
+If no more detailed instructions would be helpful (the question is fully broken down), set "instructions" to an empty array and "hasMoreLevels" to false.
+
+IMPORTANT: All string values must be properly escaped for JSON. Use \\n for line breaks within instruction strings.
+
+Respond ONLY with the valid JSON object.
+`;
+
+    const instructionLevelFieldCheck = (parsed: any): true | string => {
+        if (typeof parsed !== 'object' || parsed === null) return "Parsed JSON is not an object.";
+        if (!Array.isArray(parsed.instructions)) return "Field 'instructions' is not an array";
+        if (typeof parsed.hasMoreLevels !== 'boolean') return "Field 'hasMoreLevels' is not a boolean";
+        if (typeof parsed.levelNumber !== 'number') return "Field 'levelNumber' is not a number";
+        
+        for (let i = 0; i < parsed.instructions.length; i++) {
+            if (typeof parsed.instructions[i] !== 'string') {
+                return `Element at index ${i} in 'instructions' is not a string`;
+            }
+        }
+        return true;
+    };
+
+    try {
+        const response = await requestQueue.enqueue(() => ai!.models.generateContent({
+            model: "gemini-2.5-flash-preview-04-17", contents: prompt,
+            config: { responseMimeType: "application/json", temperature: 0.4 }
+        }));
+        
+        return parseJsonFromAiResponse<InstructionLevelResponse>(response.text, instructionLevelFieldCheck);
+    } catch (error) {
+        console.error("Error calling Gemini API for more instructions:", error);
+        if (error instanceof Error && error.message) {
+            if (error.message.includes("API key not valid") || error.message.includes("API_KEY_INVALID")) throw new Error("Invalid API Key. Check configuration.");
+            if (error.message.toLowerCase().includes("quota")) throw new Error("API quota exceeded. Try again later.");
+        }
+        if (error instanceof Error && (error.message.startsWith("AI response validation failed:") || error.message.startsWith("AI returned malformed JSON."))) {
+            throw error;
+        }
+        throw new Error("Failed to get more detailed instructions from AI. Try again.");
     }
 };
 
