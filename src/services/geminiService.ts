@@ -1,4 +1,5 @@
-import { GoogleGenAI } from "@google/genai";
+
+import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
 import { 
     AnalysisResult, 
     SupportedLanguage, 
@@ -6,12 +7,11 @@ import {
     LanguageDisplayNames,
     ExampleDifficulty,
     ExampleCodeData,
-    // TopicExplanationParts, // Not directly used here, but part of AnalysisResult
-    PracticeMaterial,
-    InstructionLevelResponse
+    PracticeMaterial 
 } from '../types';
 
 const API_KEY = process.env.API_KEY;
+const API_TIMEOUT_MS = 45000; // 45 seconds
 
 let ai: GoogleGenAI | null = null;
 if (API_KEY) {
@@ -20,53 +20,27 @@ if (API_KEY) {
   console.error("API_KEY environment variable not found. Gemini API calls will fail. Ensure it's set in your execution environment.");
 }
 
-// Request queue to prevent concurrent API calls
-class RequestQueue {
-    private queue: Array<() => Promise<any>> = [];
-    private processing = false;
-
-    async enqueue<T>(request: () => Promise<T>): Promise<T> {
-        return new Promise((resolve, reject) => {
-            this.queue.push(async () => {
-                try {
-                    const result = await request();
-                    resolve(result);
-                } catch (error) {
-                    reject(error);
-                }
-            });
-            this.processQueue();
-        });
-    }
-
-    private async processQueue() {
-        if (this.processing || this.queue.length === 0) return;
-
-        this.processing = true;
-        while (this.queue.length > 0) {
-            const request = this.queue.shift();
-            if (request) {
-                try {
-                    await request();
-                } catch (error) {
-                    console.error('Request failed:', error);
-                }
-                // Add delay between requests to respect rate limits
-                await new Promise(resolve => setTimeout(resolve, 1000));
-            }
-        }
-        this.processing = false;
-    }
-}
-
-const requestQueue = new RequestQueue();
+// Utility function to add timeout to promises
+const promiseWithTimeout = <T>(
+  promise: Promise<T>,
+  ms: number,
+  timeoutError = new Error("AI request timed out. Please try again.")
+): Promise<T> => {
+  let timer: number | undefined; 
+  const timeoutPromise = new Promise<T>((_, reject) => {
+    timer = window.setTimeout(() => reject(timeoutError), ms);
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timer) window.clearTimeout(timer);
+  });
+};
 
 const parseJsonFromAiResponse = <T>(
     responseText: string, 
-    fieldCheck: (parsed: any) => true | string // Updated to return true or an error string
+    fieldCheck: (parsed: any) => true | string 
 ): T => {
     let jsonStr = responseText.trim();
-
+    
     const fenceRegex = /^```(?:json)?\s*\n?(.*?)\n?\s*```$/s;
     const match = jsonStr.match(fenceRegex);
     if (match && match[1]) {
@@ -74,46 +48,31 @@ const parseJsonFromAiResponse = <T>(
     }
 
     try {
-        // Attempt to fix common issues like unescaped backslashes not part of valid escape sequences
-        // This regex looks for a backslash NOT followed by b, f, n, r, t, ", \, /, or u
-        jsonStr = jsonStr.replace(/\\(?![bfnrt"\\\/u])/g, "\\\\");
-    } catch(e) {
-        console.warn("Attempted backslash sanitization failed, proceeding with original string:", e);
-    }
+        let dataToValidate = JSON.parse(jsonStr); 
 
-    // Removed global replacement of \n, \r, \t as it was breaking JSON structure.
-    // The Gemini API with responseMimeType: "application/json" should provide valid JSON,
-    // including correct escaping of these characters *within* string values.
-
-    try {
-        let dataToValidate = JSON.parse(jsonStr); // Parse it first
-
-        // Check if the parsed data is an array and has at least one element
+        // If AI returns an array of objects, take the first one.
+        // This is a common pattern observed with some model responses.
         if (Array.isArray(dataToValidate) && dataToValidate.length > 0) {
-            dataToValidate = dataToValidate[0]; // Use the first element for validation
+            dataToValidate = dataToValidate[0]; 
         } else if (Array.isArray(dataToValidate) && dataToValidate.length === 0) {
-            // Handle empty array case - this is an invalid response
             console.error("AI response is an empty array.");
             throw new Error("AI returned an empty array response.");
         }
-        // If it's not an array, dataToValidate remains the parsed object.
-
-        const checkResult = fieldCheck(dataToValidate); // Validate the (potentially modified) data
+        
+        const checkResult = fieldCheck(dataToValidate); 
         if (checkResult === true) {
-            return dataToValidate as T; // Return the (potentially modified) data
+            return dataToValidate as T; 
         } else {
-            // checkResult is a string containing the specific error message
+            // Log the object that failed validation for easier debugging
             console.error("AI response validation failed:", checkResult, "Validated object (or first element if array):", dataToValidate);
             throw new Error(`AI response validation failed: ${checkResult}. The AI might be unable to process the request as expected. Check console for the actual validated object.`);
         }
     } catch (e) {
-        // This catches errors from JSON.parse or the error thrown above if fieldCheck fails
         console.error("Failed to parse or validate JSON response from AI:", e);
         console.error("Raw response text (after any sanitization):", jsonStr);
         if (e instanceof Error && e.message.startsWith("AI response validation failed:")) {
-            throw e; // Re-throw the more specific error
+            throw e; // Re-throw specific validation errors
         }
-        // Provide a more specific error message if it's a SyntaxError from JSON.parse
         if (e instanceof SyntaxError) {
              throw new Error(`AI returned malformed JSON. ${e.message}. Raw (excerpt): ${jsonStr.substring(0,200)}...`);
         }
@@ -127,24 +86,19 @@ const analysisResultFieldCheck = (parsed: any): true | string => {
     if (typeof parsed.topicExplanation.coreConcepts !== 'string') return "Field 'topicExplanation.coreConcepts' is not a string";
     if (typeof parsed.topicExplanation.lineByLineBreakdown !== 'string') return "Field 'topicExplanation.lineByLineBreakdown' is not a string";
     if (typeof parsed.topicExplanation.executionFlowAndDataTransformation !== 'string') return "Field 'topicExplanation.executionFlowAndDataTransformation' is not a string";
-
+    
     if (typeof parsed.exampleCode !== 'string') return "Field 'exampleCode' is not a string";
     if (typeof parsed.exampleCodeOutput !== 'string') return "Field 'exampleCodeOutput' is not a string";
-
+    
     if (typeof parsed.practiceSection !== 'object' || parsed.practiceSection === null) return "Missing 'practiceSection' object";
     if (typeof parsed.practiceSection.questionText !== 'string') return "Field 'practiceSection.questionText' is not a string";
-
-    if (!Array.isArray(parsed.practiceSection.instructionLevels)) return "Field 'practiceSection.instructionLevels' is not an array";
-    if (parsed.practiceSection.instructionLevels.length === 0) return "Field 'practiceSection.instructionLevels' array is empty";
-    for (let i = 0; i < parsed.practiceSection.instructionLevels.length; i++) {
-        if (typeof parsed.practiceSection.instructionLevels[i] !== 'string') {
-            return `Element at index ${i} in 'practiceSection.instructionLevels' is not a string`;
-        }
-    }
-
+    
+    // Updated for new instruction structure
+    if (typeof parsed.practiceSection.initialInstructions !== 'string') return "Field 'practiceSection.initialInstructions' is not a string"; 
+    
     if (typeof parsed.practiceSection.solutionCode !== 'string') return "Field 'practiceSection.solutionCode' is not a string";
     if (typeof parsed.practiceSection.solutionOutput !== 'string') return "Field 'practiceSection.solutionOutput' is not a string";
-
+    
     return true;
 };
 
@@ -152,12 +106,21 @@ const userSolutionAnalysisFieldCheck = (parsed: any): true | string => {
     if (typeof parsed !== 'object' || parsed === null) return "Parsed JSON is not an object.";
     if (typeof parsed.predictedOutput !== 'string') return "Field 'predictedOutput' is not a string";
     if (typeof parsed.feedback !== 'string') return "Field 'feedback' is not a string";
-    // isCorrect is optional, so no strict check for presence, but if present, check type
+    // isCorrect is optional, but if present, must be boolean
     if (parsed.hasOwnProperty('isCorrect') && typeof parsed.isCorrect !== 'boolean') {
         return "Optional field 'isCorrect' is present but not a boolean";
     }
     return true;
 };
+
+const moreInstructionsResponseFieldCheck = (parsed: any): true | string => {
+    if (typeof parsed !== 'object' || parsed === null) return "Parsed JSON is not an object.";
+    if (!Array.isArray(parsed.newInstructionSteps)) return "Field 'newInstructionSteps' is not an array";
+    if (parsed.newInstructionSteps.some((step: any) => typeof step !== 'string')) return "Not all elements in 'newInstructionSteps' are strings";
+    if (typeof parsed.hasMoreLevels !== 'boolean') return "Field 'hasMoreLevels' is not a boolean";
+    return true;
+};
+
 
 const exampleCodeDataFieldCheck = (parsed: any): true | string => {
     if (typeof parsed !== 'object' || parsed === null) return "Parsed JSON is not an object.";
@@ -175,14 +138,31 @@ const getDifficultyGuidance = (languageName: string, difficulty: ExampleDifficul
         case 'hard':
             return `Provide only raw, runnable ${languageName} code. Involve more advanced features, combine the concept with other related ideas, introduce a slightly more complex problem-solving scenario, or utilize data structures beyond simple lists/arrays. Can be longer and more detailed.`;
         default:
-            return `Provide only raw, runnable ${languageName} code. Incorporate common patterns, perhaps simple conditional logic or loops, demonstrates practical application of the concept, moderate length.`;
+            return `Provide only raw, runnable ${languageName} code. Incorporate common patterns, perhaps simple conditional logic or loops, demonstrates practical application of the concept, moderate length.`; // Default to intermediate if somehow an unknown difficulty is passed
     }
+};
+
+const handleApiError = (error: unknown, defaultMessage: string): Error => {
+    console.error("Error calling Gemini API:", error);
+    if (error instanceof Error) {
+        if (error.message.includes("API key not valid") || error.message.includes("API_KEY_INVALID")) {
+            return new Error("Invalid API Key. Check configuration.");
+        }
+        if (error.message.toLowerCase().includes("quota")) {
+            return new Error("API quota exceeded. Try again later.");
+        }
+        // Specific errors from parseJsonFromAiResponse or promiseWithTimeout should be re-thrown
+        if (error.message.startsWith("AI response validation failed:") || error.message.startsWith("AI returned malformed JSON.") || error.message.startsWith("AI request timed out")) {
+            return error;
+        }
+    }
+    return new Error(defaultMessage);
 };
 
 export const analyzeCodeWithGemini = async (
     codeContent: string,
     language: SupportedLanguage,
-    initialDifficulty: ExampleDifficulty
+    initialDifficulty: ExampleDifficulty // Added this parameter
 ): Promise<AnalysisResult> => {
     if (!ai) throw new Error("Gemini AI client is not initialized. Ensure API_KEY is set.");
     if (language === SupportedLanguage.UNKNOWN) throw new Error("Cannot analyze code for an unknown language.");
@@ -210,11 +190,7 @@ The "exampleCode" and "exampleCodeOutput" keys MUST be direct, top-level propert
 Details for the "practiceSection" top-level key:
 - "practiceSection": An object containing the practice material with the following string keys:
     - "questionText": A programming question related to THE EXPLAINED CONCEPT(S) that a learner can solve in ${languageName}.
-    - "instructionLevels": An array of strings. Each string in the array represents a distinct, progressively more detailed level of instruction for solving the "questionText".
-        - Start with high-level conceptual steps for the first level (the first string in the array).
-        - Subsequent strings (levels) should build upon the previous, offering more specific guidance, breaking down complex steps, suggesting functions/methods, or detailing logic flow.
-        - Generate as many levels as you deem appropriate for the complexity of the "questionText" (typically 2-4 levels, but can be more or less based on complexity). Ensure this array always contains at least one string.
-        - Each string (representing one instruction level) should be a multi-line text where each line within that string is a clear step (e.g., "Step 1: Define the main function.\\nStep 2: Initialize variables."). Use \\n for newlines within each instruction level string.
+    - "initialInstructions": A string containing the FIRST LEVEL of step-by-step instructions on how to approach and solve the "questionText". This initial level should adapt its detail based on the complexity of the question (simpler questions get fewer, higher-level steps; more complex questions get slightly more initial steps, still at a high level). Provide these as a multi-line string, with each step clearly articulated (use \\n for newlines within this string).
     - "solutionCode": The complete, correct, and runnable ${languageName} code that solves the questionText. This code MUST BE PURE ${languageName} CODE with no surrounding text, markdown, or explanations. Ensure all special characters in string literals within the code (like backslashes) are correctly escaped for ${languageName}.
     - "solutionOutput": The exact, expected output if the solutionCode were executed. If no visible output, use "[No direct output produced by this solution]".
 
@@ -230,30 +206,26 @@ Respond ONLY with the valid JSON object described above. Ensure the JSON is well
 `;
 
     try {
-        const response = await requestQueue.enqueue(() => ai!.models.generateContent({
-            model: "gemini-2.5-flash-preview-04-17", contents: prompt,
-            config: { responseMimeType: "application/json", temperature: 0.4 }
-        }));
+        const response = await promiseWithTimeout<GenerateContentResponse>(
+            ai.models.generateContent({
+                model: "gemini-2.5-flash-preview-04-17", // Ensure correct model
+                contents: prompt,
+                config: { responseMimeType: "application/json", temperature: 0.4 } // Temperature for analysis
+            }),
+            API_TIMEOUT_MS
+        );
         const parsedResult = parseJsonFromAiResponse<AnalysisResult>(response.text, analysisResultFieldCheck);
+        // console.log("Parsed Analysis Result from Gemini (Code):", parsedResult); // For debugging
         return parsedResult;
     } catch (error) {
-        console.error("Error calling Gemini API for code analysis:", error);
-        if (error instanceof Error && error.message) {
-             if (error.message.includes("API key not valid") || error.message.includes("API_KEY_INVALID")) throw new Error("Invalid API Key. Check configuration.");
-             if (error.message.toLowerCase().includes("quota")) throw new Error("API quota exceeded. Try again later.");
-        }
-        // If the error is from parseJsonFromAiResponse, it will be more specific. Otherwise, use a generic message.
-        if (error instanceof Error && (error.message.startsWith("AI response validation failed:") || error.message.startsWith("AI returned malformed JSON."))) {
-             throw error;
-        }
-        throw new Error("Failed to get analysis from AI. Check network/API key, then try again.");
+        throw handleApiError(error, "Failed to get analysis from AI. Check network/API key, then try again.");
     }
 };
 
 export const analyzeConceptWithGemini = async (
     concept: string,
     language: SupportedLanguage,
-    initialDifficulty: ExampleDifficulty
+    initialDifficulty: ExampleDifficulty // Added this parameter
 ): Promise<AnalysisResult> => {
     if (!ai) throw new Error("Gemini AI client is not initialized. Ensure API_KEY is set.");
     if (language === SupportedLanguage.UNKNOWN) throw new Error("Cannot analyze a concept for an unknown language context.");
@@ -282,11 +254,7 @@ The "exampleCode" and "exampleCodeOutput" keys MUST be direct, top-level propert
 Details for the "practiceSection" top-level key:
 - "practiceSection": An object containing the practice material with the following string keys:
     - "questionText": A relevant programming question related to THE USER'S CONCEPT ("${concept}") that a learner can solve using ${languageName}.
-    - "instructionLevels": An array of strings. Each string in the array represents a distinct, progressively more detailed level of instruction for solving the "questionText".
-        - Start with high-level conceptual steps for the first level (the first string in the array).
-        - Subsequent strings (levels) should build upon the previous, offering more specific guidance, breaking down complex steps, suggesting functions/methods, or detailing logic flow.
-        - Generate as many levels as you deem appropriate for the complexity of the "questionText" (typically 2-4 levels, but can be more or less based on complexity). Ensure this array always contains at least one string.
-        - Each string (representing one instruction level) should be a multi-line text where each line within that string is a clear step (e.g., "Step 1: Define the main function.\\nStep 2: Initialize variables."). Use \\n for newlines within each instruction level string.
+    - "initialInstructions": A string containing the FIRST LEVEL of step-by-step instructions on how to approach and solve the "questionText". This initial level should adapt its detail based on the complexity of the question (simpler questions get fewer, higher-level steps; more complex questions get slightly more initial steps, still at a high level). Provide these as a multi-line string, with each step clearly articulated (use \\n for newlines within this string).
     - "solutionCode": The complete, correct, and runnable ${languageName} code that solves the questionText. This code MUST BE PURE ${languageName} CODE with no surrounding text, markdown, or explanations. Ensure all special characters in string literals within the code (like backslashes) are correctly escaped for ${languageName}.
     - "solutionOutput": The exact, expected output if the solutionCode were executed. If no visible output, use "[No direct output produced by this solution]".
 
@@ -297,22 +265,86 @@ Respond ONLY with the valid JSON object. Ensure the JSON is well-formed and all 
 `;
 
     try {
-        const response =  await requestQueue.enqueue(() => ai!.models.generateContent({
-            model: "gemini-2.5-flash-preview-04-17", contents: prompt,
-            config: { responseMimeType: "application/json", temperature: 0.45 }
-        }));
+        const response = await promiseWithTimeout<GenerateContentResponse>(
+            ai.models.generateContent({
+                model: "gemini-2.5-flash-preview-04-17", // Ensure correct model
+                contents: prompt,
+                config: { responseMimeType: "application/json", temperature: 0.45 } // Temperature for concept explanation
+            }),
+            API_TIMEOUT_MS
+        );
         const parsedResult = parseJsonFromAiResponse<AnalysisResult>(response.text, analysisResultFieldCheck);
+        // console.log("Parsed Analysis Result from Gemini (Concept):", parsedResult); // For debugging
         return parsedResult;
     } catch (error) {
-        console.error("Error calling Gemini API for concept analysis:", error);
-         if (error instanceof Error && error.message) {
-             if (error.message.includes("API key not valid") || error.message.includes("API_KEY_INVALID")) throw new Error("Invalid API Key. Check configuration.");
-             if (error.message.toLowerCase().includes("quota")) throw new Error("API quota exceeded. Try again later.");
-        }
-        if (error instanceof Error && (error.message.startsWith("AI response validation failed:") || error.message.startsWith("AI returned malformed JSON."))) {
-            throw error;
-       }
-        throw new Error("Failed to get concept analysis from AI. Check network/API key, then try again.");
+        throw handleApiError(error, "Failed to get concept analysis from AI. Check network/API key, then try again.");
+    }
+};
+
+
+export const getMoreInstructionsFromGemini = async (
+    practiceQuestion: string,
+    currentInstructionsSoFar: string[], // All instruction steps shown to user so far
+    language: SupportedLanguage,
+    currentLevelNumber: number // e.g., 1 for initial, 2 after first "More" click, so requesting level currentLevelNumber + 1
+): Promise<{ newInstructionSteps: string[], hasMoreLevels: boolean }> => {
+    if (!ai) throw new Error("Gemini AI client is not initialized. Ensure API_KEY is set.");
+
+    const languageName = LanguageDisplayNames[language];
+    const instructionsContext = currentInstructionsSoFar.length > 0 
+        ? `The user has already seen these instruction steps (for levels 1 to ${currentLevelNumber}):\n${currentInstructionsSoFar.join('\n')}`
+        : "The user has not seen any instructions yet beyond the initial set you provided (if this is for Level 2+).";
+
+    const prompt = `
+You are an expert programming tutor. The user is asking for more detailed instructions to solve a practice question.
+The programming language is ${languageName}.
+The practice question is: "${practiceQuestion}"
+
+${instructionsContext}
+
+Your task is to provide the *next level* of instructions (Level ${currentLevelNumber + 1}). This new level should offer more detailed and granular guidance than what has been provided so far. Focus on breaking down previous high-level steps, suggesting specific algorithms, functions, or methods, or detailing logic flow.
+Do NOT repeat information already clearly provided in prior instruction steps unless it's essential for rephrasing or clarity in the new, more detailed context.
+
+Respond ONLY with a valid JSON object with the following exact keys: "newInstructionSteps" and "hasMoreLevels".
+- "newInstructionSteps": An array of strings. Each string in this array should be a single, clear step for this NEW (Level ${currentLevelNumber + 1}) set of instructions.
+- "hasMoreLevels": A boolean value. Set to \`true\` if you believe even more detailed levels of instruction could be beneficial after this one. Set to \`false\` if this level is sufficiently detailed or if no further meaningful breakdown is possible or helpful.
+
+Example JSON response if more levels are possible:
+{
+  "newInstructionSteps": [
+    "Specifically, to achieve step X from the previous level, first declare a variable Y.",
+    "Then, implement a loop that iterates Z times.",
+    "Inside the loop, call function A with parameters B and C."
+  ],
+  "hasMoreLevels": true
+}
+
+Example JSON response if this is the most detailed level:
+{
+  "newInstructionSteps": [
+    "Consider edge case 1: what if the input array is empty?",
+    "Ensure your error handling for scenario Z is robust."
+  ],
+  "hasMoreLevels": false
+}
+
+If no further instructions are beneficial for this new level (e.g., previous level was already very detailed), "newInstructionSteps" can be an empty array or a single string like "No further specific breakdown beneficial at this point.", and "hasMoreLevels" should be false.
+
+Ensure the JSON is well-formed and all string values are properly escaped for JSON.
+`;
+
+    try {
+        const response = await promiseWithTimeout<GenerateContentResponse>(
+            ai.models.generateContent({
+                model: "gemini-2.5-flash-preview-04-17",
+                contents: prompt,
+                config: { responseMimeType: "application/json", temperature: 0.35 } // Lower temp for more deterministic instructions
+            }),
+            API_TIMEOUT_MS
+        );
+        return parseJsonFromAiResponse<{ newInstructionSteps: string[], hasMoreLevels: boolean }>(response.text, moreInstructionsResponseFieldCheck);
+    } catch (error) {
+        throw handleApiError(error, "Failed to get more instructions from AI. Please try again.");
     }
 };
 
@@ -320,28 +352,27 @@ Respond ONLY with the valid JSON object. Ensure the JSON is well-formed and all 
 export const checkUserSolutionWithGemini = async (
     userCode: string, 
     language: SupportedLanguage, 
-    practiceMaterial: PracticeMaterial,
-    topicCoreConcepts: string 
+    practiceQuestionText: string,
+    topicCoreConcepts: string, // Context about the general topic
+    instructionsProvidedToUser: string[] // All instruction steps shown so far
 ): Promise<UserSolutionAnalysis> => {
     if (!ai) throw new Error("Gemini AI client is not initialized. Ensure API_KEY is set.");
     if (language === SupportedLanguage.UNKNOWN) throw new Error("Cannot analyze solution for an unknown language.");
 
     const languageName = LanguageDisplayNames[language];
 
-    let instructionsContext = "The user had access to the following instruction levels if they chose to reveal them:\n";
-    if (practiceMaterial.instructionLevels && practiceMaterial.instructionLevels.length > 0) {
-        practiceMaterial.instructionLevels.forEach((levelContent, index) => {
-            instructionsContext += `--- Level ${index + 1} Instructions ---\n${levelContent}\n\n`;
-        });
+    let instructionsContext = "The user had access to the following instruction steps if they chose to reveal them:\n";
+    if (instructionsProvidedToUser && instructionsProvidedToUser.length > 0) {
+        instructionsContext += instructionsProvidedToUser.join("\n") + "\n\n";
     } else {
-        instructionsContext += "No specific multi-level instructions were provided for this question beyond the question text itself.\n";
+        instructionsContext += "No specific multi-level instructions were provided or revealed for this question beyond the question text itself and potentially an initial set.\n";
     }
 
     const prompt = `
 You are an expert programming tutor. The user is attempting to solve a practice question.
 The programming language is ${languageName}.
 The core topic being practiced is related to: "${topicCoreConcepts}"
-The practice question was: "${practiceMaterial.questionText}"
+The practice question was: "${practiceQuestionText}"
 
 ${instructionsContext}
 
@@ -350,17 +381,17 @@ Here is the user's submitted code:
 ${userCode}
 \`\`\`
 
-Analyze the user's solution. Your primary task is to determine if the user's code CORRECTLY AND COMPLETELY SOLVES the practice question ("${practiceMaterial.questionText}").
+Analyze the user's solution. Your primary task is to determine if the user's code CORRECTLY AND COMPLETELY SOLVES the practice question ("${practiceQuestionText}").
 
 Provide your analysis in a JSON format with the following exact keys: "predictedOutput", "feedback", and "isCorrect" (boolean).
 
 - "predictedOutput": A string representing the exact, predicted output if the user's code were executed. If the code would produce no visible output or result in an error, state that clearly (e.g., "[No direct output]" or "[Error: Division by zero]").
 - "isCorrect": A boolean value.
-  - Set to true ONLY IF the user's code accurately and fully solves the problem as described by "${practiceMaterial.questionText}". Consider if they followed the general approach outlined in the instructions (if available to them), but prioritize correctness of the solution to the "questionText".
+  - Set to true ONLY IF the user's code accurately and fully solves the problem as described by "${practiceQuestionText}". Consider if they followed the general approach outlined in the instructions (if available and revealed to them), but prioritize correctness of the solution to the "questionText".
   - Set to false if the user's code fails to solve the "questionText" correctly, contains errors, or is incomplete.
 - "feedback": Constructive feedback on the user's solution.
   - If "isCorrect" is true, briefly acknowledge its correctness. You may also point out any best practices or alternative approaches if relevant.
-  - If "isCorrect" is false, your feedback should clearly explain WHAT is incorrect or missing in relation to the "questionText". Be encouraging and suggest improvements. You may reference the provided instruction levels if the user missed key guidance.
+  - If "isCorrect" is false, your feedback should clearly explain WHAT is incorrect or missing in relation to the "questionText". Be encouraging and suggest improvements. You may reference the provided instruction steps if the user missed key guidance.
 
 IMPORTANT: All string values within the JSON structure itself (like feedback and predictedOutput) MUST be valid JSON strings. This means special characters like backslashes (\\), quotes (\"), and newlines (\\n) must be properly escaped within the JSON string literals.
 CRITICALLY IMPORTANT: Ensure all keys within any single JSON object are unique. Duplicate keys within the same object are NOT ALLOWED and will result in an invalid JSON structure.
@@ -368,26 +399,24 @@ CRITICALLY IMPORTANT: Ensure all keys within any single JSON object are unique. 
 Respond ONLY with the valid JSON object described above, without any additional explanations or surrounding text. Ensure the JSON is well-formed and all string values are properly escaped for JSON.
 `;
     try {
-        const response = await requestQueue.enqueue(() => ai!.models.generateContent({
-            model: "gemini-2.5-flash-preview-04-17", contents: prompt,
-            config: { responseMimeType: "application/json", temperature: 0.3 } 
-        }));
+        const response = await promiseWithTimeout<GenerateContentResponse>(
+            ai.models.generateContent({
+                model: "gemini-2.5-flash-preview-04-17", // Ensure correct model
+                contents: prompt,
+                config: { responseMimeType: "application/json", temperature: 0.3 } // Lower temp for more focused feedback
+            }),
+            API_TIMEOUT_MS
+        );
         return parseJsonFromAiResponse<UserSolutionAnalysis>(response.text, userSolutionAnalysisFieldCheck);
     } catch (error) {
-        console.error("Error calling Gemini API for solution check:", error);
-        if (error instanceof Error && error.message) {
-            if (error.message.includes("API key not valid") || error.message.includes("API_KEY_INVALID")) throw new Error("Invalid API Key. Check configuration.");
-            if (error.message.toLowerCase().includes("quota")) throw new Error("API quota exceeded. Try again later.");
-       }
-       if (error instanceof Error && (error.message.startsWith("AI response validation failed:") || error.message.startsWith("AI returned malformed JSON."))) {
-            throw error;
-       }
-        throw new Error("Failed to get feedback for your solution. Check network/API key, then try again.");
+       throw handleApiError(error, "Failed to get feedback for your solution. Check network/API key, then try again.");
     }
 };
 
 export const getExampleByDifficulty = async (
-    topicCoreConcepts: string, language: SupportedLanguage, difficulty: ExampleDifficulty
+    topicCoreConcepts: string, // Use core concepts of the main topic for context
+    language: SupportedLanguage, 
+    difficulty: ExampleDifficulty
 ): Promise<ExampleCodeData> => {
     if (!ai) throw new Error("Gemini AI client is not initialized. Ensure API_KEY is set.");
     if (language === SupportedLanguage.UNKNOWN) throw new Error("Cannot generate example for an unknown language.");
@@ -408,110 +437,30 @@ CRITICALLY IMPORTANT: Ensure all keys within any single JSON object are unique. 
 Respond ONLY with the valid JSON object. Ensure all string values are properly escaped for JSON.
 `;
     try {
-        const response = await requestQueue.enqueue(() => ai!.models.generateContent({
-            model: "gemini-2.5-flash-preview-04-17", contents: prompt,
-            config: { responseMimeType: "application/json", temperature: 0.6 }
-        }));
+        const response = await promiseWithTimeout<GenerateContentResponse>(
+            ai.models.generateContent({
+                model: "gemini-2.5-flash-preview-04-17", // Ensure correct model
+                contents: prompt,
+                config: { responseMimeType: "application/json", temperature: 0.6 } // Slightly higher temp for more varied examples
+            }),
+            API_TIMEOUT_MS
+        );
         return parseJsonFromAiResponse<ExampleCodeData>(response.text, exampleCodeDataFieldCheck);
     } catch (error) {
-        console.error(`Error calling Gemini API for ${difficulty} example:`, error);
-        if (error instanceof Error && error.message) {
-            if (error.message.includes("API key not valid") || error.message.includes("API_KEY_INVALID")) throw new Error("Invalid API Key. Check configuration.");
-            if (error.message.toLowerCase().includes("quota")) throw new Error("API quota exceeded. Try again later.");
-        }
-        if (error instanceof Error && (error.message.startsWith("AI response validation failed:") || error.message.startsWith("AI returned malformed JSON."))) {
-            throw error;
-       }
-        throw new Error(`Failed to generate ${difficulty} example from AI. Try again.`);
+        throw handleApiError(error, `Failed to generate ${difficulty} example from AI. Try again.`);
     }
 };
 
-export const getMoreInstructionsWithGemini = async (
-    practiceQuestion: string,
-    currentInstructions: string[],
-    language: SupportedLanguage,
-    currentLevel: number
-): Promise<InstructionLevelResponse> => {
-    if (!ai) throw new Error("Gemini AI client is not initialized. Ensure API_KEY is set.");
-    if (language === SupportedLanguage.UNKNOWN) throw new Error("Cannot generate instructions for an unknown language.");
-
-    const languageName = LanguageDisplayNames[language];
-    const currentInstructionsText = currentInstructions.map((inst, idx) => `Level ${idx + 1}: ${inst}`).join('\n\n');
-
-    const prompt = `
-You are an expert programming tutor. A user is working on a practice question and needs more detailed instructions.
-
-Practice Question: "${practiceQuestion}"
-Programming Language: ${languageName}
-Current Level: ${currentLevel}
-
-Instructions already provided to the user:
-${currentInstructionsText}
-
-Your task is to provide the NEXT level (Level ${currentLevel + 1}) of more detailed, specific instructions for solving this practice question. 
-
-Guidelines:
-- Break down the previous high-level steps into more granular, actionable steps
-- Provide specific coding guidance, function suggestions, or algorithmic details
-- Do not repeat information already provided unless rephrasing for clarity
-- If the practice question is simple and already has sufficient detail, indicate that no more levels are beneficial
-- Focus on practical implementation details that help the user write actual code
-
-Respond with a JSON object containing:
-- "instructions": An array of strings, each representing a detailed step for this level
-- "hasMoreLevels": A boolean indicating if even more detailed levels would be beneficial
-- "levelNumber": The number ${currentLevel + 1}
-
-If no more detailed instructions would be helpful (the question is fully broken down), set "instructions" to an empty array and "hasMoreLevels" to false.
-
-IMPORTANT: All string values must be properly escaped for JSON. Use \\n for line breaks within instruction strings.
-
-Respond ONLY with the valid JSON object.
-`;
-
-    const instructionLevelFieldCheck = (parsed: any): true | string => {
-        if (typeof parsed !== 'object' || parsed === null) return "Parsed JSON is not an object.";
-        if (!Array.isArray(parsed.instructions)) return "Field 'instructions' is not an array";
-        if (typeof parsed.hasMoreLevels !== 'boolean') return "Field 'hasMoreLevels' is not a boolean";
-        if (typeof parsed.levelNumber !== 'number') return "Field 'levelNumber' is not a number";
-        
-        for (let i = 0; i < parsed.instructions.length; i++) {
-            if (typeof parsed.instructions[i] !== 'string') {
-                return `Element at index ${i} in 'instructions' is not a string`;
-            }
-        }
-        return true;
-    };
-
-    try {
-        const response = await requestQueue.enqueue(() => ai!.models.generateContent({
-            model: "gemini-2.5-flash-preview-04-17", contents: prompt,
-            config: { responseMimeType: "application/json", temperature: 0.4 }
-        }));
-        
-        return parseJsonFromAiResponse<InstructionLevelResponse>(response.text, instructionLevelFieldCheck);
-    } catch (error) {
-        console.error("Error calling Gemini API for more instructions:", error);
-        if (error instanceof Error && error.message) {
-            if (error.message.includes("API key not valid") || error.message.includes("API_KEY_INVALID")) throw new Error("Invalid API Key. Check configuration.");
-            if (error.message.toLowerCase().includes("quota")) throw new Error("API quota exceeded. Try again later.");
-        }
-        if (error instanceof Error && (error.message.startsWith("AI response validation failed:") || error.message.startsWith("AI returned malformed JSON."))) {
-            throw error;
-        }
-        throw new Error("Failed to get more detailed instructions from AI. Try again.");
-    }
-};
-
+// New function to handle follow-up questions from the user
 export const askFollowUpQuestionWithGemini = async (
     userQuestion: string, 
-    fullExplanationContext: string, 
+    fullExplanationContext: string, // Concatenated coreConcepts, lineByLine, executionFlow
     language: SupportedLanguage,
-    originalInputContext: string, 
-    inputType: 'code' | 'concept'
+    originalInputContext: string, // The original code or concept string user provided
+    inputType: 'code' | 'concept' // To tailor the context slightly
 ): Promise<string> => {
     if (!ai) throw new Error("Gemini AI client is not initialized. Ensure API_KEY is set.");
-
+    
     const languageName = LanguageDisplayNames[language] || "the specified language";
     const contextType = inputType === 'code' ? "the user's code snippet" : "the user's concept";
 
@@ -542,18 +491,16 @@ Ensure that any special characters like backslashes are appropriately represente
 `;
 
     try {
-        const response = await requestQueue.enqueue(() => ai!.models.generateContent({
-            model: "gemini-2.5-flash-preview-04-17",
-            contents: prompt,
-            config: { temperature: 0.55 }
-        }));
-        return response.text;
+        const response = await promiseWithTimeout<GenerateContentResponse>(
+            ai.models.generateContent({
+                model: "gemini-2.5-flash-preview-04-17",
+                contents: prompt,
+                config: { temperature: 0.55 } // Moderate temperature for helpful, creative answers
+            }),
+            API_TIMEOUT_MS
+        );
+        return response.text; // Return plain text answer
     } catch (error) {
-        console.error("Error calling Gemini API for follow-up question:", error);
-        if (error instanceof Error && error.message) {
-            if (error.message.includes("API key not valid") || error.message.includes("API_KEY_INVALID")) throw new Error("Invalid API Key. Check configuration.");
-            if (error.message.toLowerCase().includes("quota")) throw new Error("API quota exceeded. Try again later.");
-        }
-        throw new Error("Failed to get an answer from AI for your follow-up question. Please try again.");
+        throw handleApiError(error, "Failed to get an answer from AI for your follow-up question. Please try again.");
     }
 };

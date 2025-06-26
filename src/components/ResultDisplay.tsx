@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback, useEffect } from 'react';
 import toast from 'react-hot-toast';
 import Editor from 'react-simple-code-editor';
@@ -10,17 +11,19 @@ import {
     ExampleDifficulty,
     ExampleDifficultyLevels,
     ExampleDifficultyDisplayNames,
-    PracticeMaterial 
+    // PracticeMaterial removed as it's not directly passed anymore
 } from '../types'; 
 import { LanguageDisplayNames } from '../types'; 
 import { TerminalOutput } from './TerminalOutput';
 import { 
     checkUserSolutionWithGemini, 
-    getExampleByDifficulty, askFollowUpQuestionWithGemini, getMoreInstructionsWithGemini
+    getExampleByDifficulty,
+    askFollowUpQuestionWithGemini,
+    getMoreInstructionsFromGemini // New import
 } from '../services/geminiService'; 
 import { ErrorMessage } from './ErrorMessage'; 
 import { CodeBlock, getPrismLanguageString } from './CodeBlock'; 
-import { escapeHtml } from '../utils/textUtils'; // Import centralized utility
+import { escapeHtml } from '../utils/textUtils'; 
 
 
 interface CollapsibleSectionProps {
@@ -36,24 +39,26 @@ const CollapsibleSectionComponent: React.FC<CollapsibleSectionProps> = ({ title,
     const toggleExpansion = () => setIsExpanded(!isExpanded);
 
     const renderFormattedContent = (text: string) => {
+      // Check for N/A or empty content first
       if (!text || text.trim().toLowerCase() === "n/a" || text.trim().toLowerCase() === "not applicable") {
         return <p className="text-sm text-gray-400 italic">This section is not applicable for the current analysis or was not provided.</p>;
       }
+      // Apply basic markdown-like formatting for bold and italics, then split into paragraphs
       return text
-        .split('\n')
-        .map(line => line.trim())
-        .filter(line => line.length > 0)
+        .split('\n') // Split by newline first to get "paragraphs"
+        .map(line => line.trim()) // Trim each line
+        .filter(line => line.length > 0) // Remove empty lines
         .map((paragraph, index) => (
             <p key={index} 
                dangerouslySetInnerHTML={{ 
                    __html: paragraph
-                    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') 
-                    .replace(/\*(.*?)\*/g, '<em>$1</em>')       
+                    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') // Bold: **text**
+                    .replace(/\*(.*?)\*/g, '<em>$1</em>')       // Italics: *text*
                }}>
             </p>
         ));
     };
-
+    
     return (
         <div className="py-2">
             <button
@@ -61,6 +66,7 @@ const CollapsibleSectionComponent: React.FC<CollapsibleSectionProps> = ({ title,
                 onClick={toggleExpansion}
                 className="w-full flex justify-between items-center text-left text-sm font-medium text-gray-100 hover:text-indigo-300 p-2 rounded-md hover:bg-gray-700/40 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:ring-offset-1 focus:ring-offset-gray-800 transition-colors"
                 aria-expanded={isExpanded}
+                aria-controls={`collapsible-content-${title.replace(/\s+/g, '-').toLowerCase()}`}
             >
                 <span className="flex items-center">
                     <span className="material-icons-outlined text-indigo-400 mr-2 text-base">{iconName}</span>
@@ -71,6 +77,7 @@ const CollapsibleSectionComponent: React.FC<CollapsibleSectionProps> = ({ title,
                 </span>
             </button>
             <div 
+                id={`collapsible-content-${title.replace(/\s+/g, '-').toLowerCase()}`}
                 className={`transition-all duration-300 ease-in-out overflow-hidden ${isExpanded ? 'max-h-[1500px] opacity-100' : 'max-h-0 opacity-50'}`}
                 style={{ transitionProperty: 'max-height, opacity' }}
             >
@@ -86,21 +93,22 @@ const CollapsibleSectionComponent: React.FC<CollapsibleSectionProps> = ({ title,
 const CollapsibleSection = React.memo(CollapsibleSectionComponent);
 
 
-const renderInstructionList = (instructionsString: string | undefined) => {
-    if (!instructionsString || instructionsString.trim() === "") {
+const renderInstructionSteps = (steps: string[]) => {
+    if (!steps || steps.length === 0) {
         return <p className="text-sm text-gray-400 italic">No instructions provided for this level, or this level is not applicable.</p>;
     }
     return (
         <ul className="list-none text-sm text-gray-300 space-y-2 leading-relaxed">
-            {instructionsString.split('\n').map((line, index) => {
-                const trimmedLine = line.trim().replace(/^(\d+\.|-|\*|\u2022|Step\s*\d*:)\s*/i, '');
-                if (trimmedLine) return (
-                    <li key={index} className="flex items-start pl-1">
+            {steps.map((step, index) => {
+                // Remove common list prefixes if AI includes them
+                const trimmedStep = step.trim().replace(/^(\d+\.|-|\*|\u2022|Step\s*\d*:)\s*/i, '');
+                if (trimmedStep) return (
+                    <li key={`instruction-step-${index}`} className="flex items-start pl-1">
                         <span className="material-icons-outlined text-indigo-500 text-base mr-2.5 mt-px flex-shrink-0">chevron_right</span>
-                        <span>{trimmedLine}</span>
+                        <span>{trimmedStep}</span>
                     </li>
                 );
-                return null;
+                return null; // Skip empty or only prefix lines
             })}
         </ul>
     );
@@ -110,7 +118,7 @@ interface ResultDisplayProps {
     result: AnalysisResult;
     language: SupportedLanguage; 
     difficultyOfProvidedExample: ExampleDifficulty;
-    originalInputContext: string; 
+    originalInputContext: string; // The original code or concept string
     originalInputType: 'code' | 'concept';
 }
 
@@ -121,46 +129,43 @@ const ResultDisplayComponent: React.FC<ResultDisplayProps> = ({
     originalInputContext,
     originalInputType
 }) => {
+    // Example Code states
     const [currentExampleCode, setCurrentExampleCode] = useState<string>(result.exampleCode);
     const [currentExampleCodeOutput, setCurrentExampleCodeOutput] = useState<string>(result.exampleCodeOutput);
     const [selectedExampleDifficulty, setSelectedExampleDifficulty] = useState<ExampleDifficulty>(difficultyOfProvidedExample);
-
+    
     const [isExampleLoading, setIsExampleLoading] = useState<boolean>(false);
     const [exampleError, setExampleError] = useState<string | null>(null);
     const [showExampleOutput, setShowExampleOutput] = useState(false);
-
-    const [practiceSolution, setPracticeSolution] = useState('');
+    
+    // Practice Solution states
+    const [practiceSolution, setPracticeSolution] = useState(''); // User's code for practice question
     const [userSolutionAnalysis, setUserSolutionAnalysis] = useState<UserSolutionAnalysis | null>(null);
     const [isCheckingSolution, setIsCheckingSolution] = useState<boolean>(false);
     const [solutionError, setSolutionError] = useState<string | null>(null);
-
+    
+    // Follow-up question states
     const [followUpQuestionText, setFollowUpQuestionText] = useState<string>('');
     const [followUpAnswer, setFollowUpAnswer] = useState<string | null>(null);
     const [isAskingFollowUp, setIsAskingFollowUp] = useState<boolean>(false);
     const [followUpError, setFollowUpError] = useState<string | null>(null);
 
-    const [showUserSolution, setShowUserSolution] = useState<boolean>(false);
-    const [userSolutionInput, setUserSolutionInput] = useState<string>('');
-    const [userSolutionFeedback, setUserSolutionFeedback] = useState<UserSolutionAnalysis | null>(null);
-    const [isCheckingSolution, setIsCheckingSolution] = useState<boolean>(false);
-    const [practiceAttempted, setPracticeAttempted] = useState<boolean>(false);
-
-    // Progressive instruction states
+    // State for dynamic instructions
     const [displayedInstructions, setDisplayedInstructions] = useState<string[]>([]);
     const [currentInstructionLevel, setCurrentInstructionLevel] = useState<number>(1);
-    const [hasMoreInstructions, setHasMoreInstructions] = useState<boolean>(true);
     const [isLoadingInstructions, setIsLoadingInstructions] = useState<boolean>(false);
-    const [showSolution, setShowSolution] = useState<boolean>(false);
-    const [isLoadingSolution, setIsLoadingSolution] = useState<boolean>(false);
+    const [hasMoreInstructions, setHasMoreInstructions] = useState<boolean>(true); // Assume more initially
 
-    const [instructionsExpanded, setInstructionsExpanded] = useState<boolean>(false);
+    // State for showing AI's solution to practice question
+    const [showSolution, setShowSolution] = useState<boolean>(false);
+    // isLoadingSolution is not strictly needed as solution is pre-fetched for now.
 
     const { coreConcepts, lineByLineBreakdown, executionFlowAndDataTransformation } = result.topicExplanation;
-    const { practiceSection } = result; 
-    const instructionLevels = practiceSection?.instructionLevels || [];
-    const MAX_INSTRUCTION_LEVEL_INDEX = instructionLevels.length - 1;
+    const { practiceSection } = result; // Contains questionText, initialInstructions, solutionCode, solutionOutput
 
     useEffect(() => {
+        // Reset states when the 'result' prop changes (new analysis is loaded)
+        // Reset example code states
         setCurrentExampleCode(result.exampleCode);
         setCurrentExampleCodeOutput(result.exampleCodeOutput);
         setSelectedExampleDifficulty(difficultyOfProvidedExample);
@@ -168,33 +173,33 @@ const ResultDisplayComponent: React.FC<ResultDisplayProps> = ({
         setIsExampleLoading(false);
         setExampleError(null);
 
+        // Reset practice solution states
         setPracticeSolution('');
         setUserSolutionAnalysis(null);
         setSolutionError(null);
+        setIsCheckingSolution(false);
 
+        // Reset follow-up question states
         setFollowUpQuestionText('');
         setFollowUpAnswer(null);
         setIsAskingFollowUp(false);
         setFollowUpError(null);
 
-        // Progressive Reveal Reset
-        setDisplayedInstructions([]);
-        setCurrentInstructionLevel(1);
-        setHasMoreInstructions(true);
-        setShowSolution(false);
-
-    }, [result, difficultyOfProvidedExample]);
-
-    useEffect(() => {
-        if (result?.practiceSection?.instructionLevels && result.practiceSection.instructionLevels.length > 0) {
-            setInstructionsExpanded(true);
-            // Initialize with the first level of instructions
-            setDisplayedInstructions([result.practiceSection.instructionLevels[0]]);
-            setCurrentInstructionLevel(1);
-            // Assume there are more levels initially (will be determined by AI)
-            setHasMoreInstructions(result.practiceSection.instructionLevels.length > 1);
+        // Reset instruction states
+        if (practiceSection?.initialInstructions) {
+            setDisplayedInstructions(practiceSection.initialInstructions.split('\n').filter(line => line.trim() !== ''));
+        } else {
+            setDisplayedInstructions([]);
         }
-    }, [result]);
+        setCurrentInstructionLevel(1);
+        // Determine initial hasMoreInstructions. If initialInstructions is very short or implies it's basic, assume true.
+        // A more robust check might involve analyzing the content of initialInstructions, or AI could provide this for level 1.
+        // For now, default to true, as the AI is prompted to provide at least 3 levels.
+        setHasMoreInstructions(true); 
+        setIsLoadingInstructions(false);
+        setShowSolution(false); // Hide solution on new analysis
+
+    }, [result, difficultyOfProvidedExample, practiceSection]);
 
     const handleDifficultyChange = useCallback(async (newDifficulty: ExampleDifficulty) => {
         if (newDifficulty === selectedExampleDifficulty && !exampleError && !isExampleLoading) {
@@ -203,7 +208,7 @@ const ResultDisplayComponent: React.FC<ResultDisplayProps> = ({
         }
         if (isExampleLoading) return;
 
-        setIsExampleLoading(true); setExampleError(null); setShowExampleOutput(false); 
+        setIsExampleLoading(true); setExampleError(null); setShowExampleOutput(false); // Reset related states
 
         try {
             if (!language || language === SupportedLanguage.UNKNOWN) throw new Error("Language not set for example generation.");
@@ -219,7 +224,7 @@ const ResultDisplayComponent: React.FC<ResultDisplayProps> = ({
         } finally {
             setIsExampleLoading(false);
         }
-    }, [selectedExampleDifficulty, isExampleLoading, language, coreConcepts, exampleError]);
+    }, [selectedExampleDifficulty, isExampleLoading, language, coreConcepts, exampleError]); // Added exampleError to deps
 
     const handleCheckSolution = useCallback(async () => {
         if (!practiceSolution.trim()) {
@@ -234,8 +239,9 @@ const ResultDisplayComponent: React.FC<ResultDisplayProps> = ({
             const analysis = await checkUserSolutionWithGemini(
                 practiceSolution, 
                 language, 
-                practiceSection, 
-                coreConcepts 
+                practiceSection.questionText, 
+                coreConcepts, // General topic context
+                displayedInstructions // Pass all currently revealed instructions
             );
             setUserSolutionAnalysis(analysis);
             toast.success("AI feedback on your solution received!");
@@ -245,16 +251,17 @@ const ResultDisplayComponent: React.FC<ResultDisplayProps> = ({
         } finally {
             setIsCheckingSolution(false);
         }
-    }, [practiceSolution, language, practiceSection, coreConcepts]);
+    }, [practiceSolution, language, practiceSection, coreConcepts, displayedInstructions]);
 
     const handleAskFollowUpQuestion = useCallback(async () => {
         if (!followUpQuestionText.trim() || isAskingFollowUp) return;
         setIsAskingFollowUp(true);
         setFollowUpError(null);
-        setFollowUpAnswer(null);
+        setFollowUpAnswer(null); // Clear previous answer
         toast("Asking AI your question...", { icon: '💬' });
         try {
-            const fullExplanationForContext = `Core Concepts: ${coreConcepts}\n\nLine-by-Line Breakdown: ${lineByLineBreakdown}\n\nExecution Flow: ${executionFlowAndDataTransformation}`;
+            // Create a comprehensive context string from the topic explanation parts
+            const fullExplanationForContext = `Core Concepts: ${coreConcepts}\n\nLine-by-Line Breakdown: ${lineByLineBreakdown}\n\nExecution Flow & Data Transformation: ${executionFlowAndDataTransformation}`;
             const answer = await askFollowUpQuestionWithGemini(followUpQuestionText, fullExplanationForContext, language, originalInputContext, originalInputType);
             setFollowUpAnswer(answer);
             toast.success("AI has responded!");
@@ -266,75 +273,85 @@ const ResultDisplayComponent: React.FC<ResultDisplayProps> = ({
         }
     }, [followUpQuestionText, coreConcepts, lineByLineBreakdown, executionFlowAndDataTransformation, language, originalInputContext, originalInputType, isAskingFollowUp]);
 
-    const resetUserSolution = () => {
-        setUserSolutionInput('');
-        setUserSolutionFeedback(null);
-        setPracticeAttempted(false);
-    };
-
-    const handleMoreInstructions = async () => {
-        if (!result?.practiceSection?.questionText) return;
+    const handleMoreInstructions = useCallback(async () => {
+        if (!hasMoreInstructions || isLoadingInstructions) return;
 
         setIsLoadingInstructions(true);
+        toast(`Fetching Level ${currentInstructionLevel + 1} instructions...`, { icon: '⏳' });
         try {
-            const response = await getMoreInstructionsWithGemini(
-                result.practiceSection.questionText,
+            if (!practiceSection?.questionText || !language || language === SupportedLanguage.UNKNOWN) {
+                throw new Error("Missing context for fetching more instructions.");
+            }
+            const response = await getMoreInstructionsFromGemini(
+                practiceSection.questionText,
                 displayedInstructions,
                 language,
                 currentInstructionLevel
             );
+            
+            if (response.newInstructionSteps && response.newInstructionSteps.length > 0) {
+                 // Filter out potential "no more instructions" messages if they are not actual steps
+                const actualNewSteps = response.newInstructionSteps.filter(step => 
+                    !step.toLowerCase().includes("no further") && 
+                    !step.toLowerCase().includes("not beneficial") &&
+                    step.trim() !== ""
+                );
 
-            if (response.instructions.length > 0) {
-                setDisplayedInstructions(prev => [...prev, ...response.instructions]);
-                setCurrentInstructionLevel(response.levelNumber);
-                setHasMoreInstructions(response.hasMoreLevels);
+                if (actualNewSteps.length > 0) {
+                    setDisplayedInstructions(prev => [...prev, ...actualNewSteps]);
+                    setCurrentInstructionLevel(prev => prev + 1);
+                    toast.success(`Level ${currentInstructionLevel + 1} instructions loaded!`, { icon: '📚' });
+                } else if (response.newInstructionSteps.length > 0 && response.newInstructionSteps[0].trim() !== "") { // If AI sent only a message like "No further..."
+                     toast(response.newInstructionSteps[0], { icon: 'ℹ️' }); // Display the AI's message
+                } else { // AI sent empty steps but maybe didn't set hasMoreLevels to false
+                    toast("No more detailed instructions available for this level.", { icon: 'ℹ️' });
+                }
             } else {
-                setHasMoreInstructions(false);
-                toast.info("No more detailed instructions available for this question.");
+                 toast("No more detailed instructions available.", { icon: 'ℹ️' });
             }
-        } catch (error) {
-            console.error('Error fetching more instructions:', error);
-            toast.error(error instanceof Error ? error.message : 'Failed to get more instructions');
+            setHasMoreInstructions(response.hasMoreLevels);
+
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : "Failed to fetch more instructions.";
+            toast.error(msg);
+            console.error("Error fetching more instructions:", err);
+            // Optionally, set hasMoreInstructions to false on error to prevent repeated failed attempts
+            // setHasMoreInstructions(false); 
         } finally {
             setIsLoadingInstructions(false);
         }
-    };
+    }, [practiceSection, displayedInstructions, language, currentInstructionLevel, hasMoreInstructions, isLoadingInstructions]);
 
-    const handleShowSolution = async () => {
-        if (!result?.practiceSection?.solutionCode) {
-            toast.error("Solution not available");
-            return;
-        }
-        setShowSolution(true);
-    };
 
     const isCheckSolutionDisabled = isCheckingSolution || !practiceSolution.trim();
     const prismLanguageForEditor = getPrismLanguageString(language);
 
+    // Robust highlight function for the Editor component, using Prism directly
     const robustPracticeSolutionHighlight = (code: string) => {
-        if (typeof Prism === 'undefined' || !Prism.highlight || !code) return escapeHtml(code || '');
+        if (typeof Prism === 'undefined' || !Prism.highlight || !code) return escapeHtml(code || ''); // Ensure Prism is loaded and code exists
         try {
-            const langGrammar = Prism.languages[prismLanguageForEditor] || Prism.languages.clike;
+            const langGrammar = Prism.languages[prismLanguageForEditor] || Prism.languages.clike; // Fallback to clike
             if (langGrammar) return Prism.highlight(code, langGrammar, prismLanguageForEditor);
         } catch (e) { console.warn(`Error highlighting practice solution with ${prismLanguageForEditor}:`, e); }
-        return escapeHtml(code); 
+        return escapeHtml(code); // Fallback for safety
     };
-
+    
+    // Helper to render paragraphs with basic markdown for follow-up answer
     const renderParagraphsForFollowUp = (text: string) => { 
       if (!text) return null;
+      // Basic markdown for bold and italics
       const formattedText = text
         .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') 
         .replace(/\*(.*?)\*/g, '<em>$1</em>');       
-
+      
       return formattedText.split('\n').map((paragraph, index) => (
         <p key={index} dangerouslySetInnerHTML={{ __html: paragraph }}></p>
       ));
     };
 
-    const currentInstructionsContent = instructionLevels[currentInstructionLevelIndex];
-
     return (
         <div className="w-full text-left space-y-6 sm:space-y-8">
+            {/* Topic Explanation Section */}
             <section aria-labelledby="topic-explanation-main-title">
                 <h3 id="topic-explanation-main-title" className="text-lg font-semibold text-white mb-2 flex items-center">
                     <span className="material-icons-outlined text-indigo-400 mr-2 text-xl">school</span>Topic Explanation
@@ -345,6 +362,7 @@ const ResultDisplayComponent: React.FC<ResultDisplayProps> = ({
                     <CollapsibleSection title="Code Execution Flow & Data Transformation" content={executionFlowAndDataTransformation} isExpandedInitially={false} iconName="data_object" />
                 </div>
 
+                {/* Follow-up Question UI */}
                 <div className="mt-4 pt-4 border-t border-gray-700/70 space-y-3">
                     <div>
                         <label htmlFor="follow-up-question" className="block text-xs font-medium text-gray-400 mb-1.5">Ask a Follow-up Question about the Topic:</label>
@@ -378,6 +396,7 @@ const ResultDisplayComponent: React.FC<ResultDisplayProps> = ({
 
             <div className="border-t border-gray-700/60"></div>
 
+            {/* Example Code Section */}
             <section aria-labelledby="example-code-title">
                 <h3 id="example-code-title" className="text-lg font-semibold text-white mb-3 flex items-center">
                     <span className="material-icons-outlined text-indigo-400 mr-2 text-xl">code_blocks</span>Example Code
@@ -425,8 +444,9 @@ const ResultDisplayComponent: React.FC<ResultDisplayProps> = ({
             </section>
 
             <div className="border-t border-gray-700/60"></div>
-
-            {practiceSection && instructionLevels.length > 0 && (
+            
+            {/* Practice Question & Instructions Section */}
+            {practiceSection && (
             <section aria-labelledby="practice-question-title">
                 <h3 id="practice-question-title" className="text-lg font-semibold text-white mb-3 flex items-center">
                     <span className="material-icons-outlined text-indigo-400 mr-2 text-xl">quiz</span>Practice Question
@@ -434,23 +454,34 @@ const ResultDisplayComponent: React.FC<ResultDisplayProps> = ({
                 <div className="text-sm text-gray-300 mb-4 leading-relaxed prose prose-sm prose-invert max-w-none">
                      {practiceSection.questionText.split('\n').map((line, index) => <p key={index}>{line}</p>)}
                 </div>
-
+                
+                {/* Dynamic Instructions */}
                 <div className="mb-4">
                     <h4 className="text-md font-semibold text-gray-100 mb-2 flex items-center">
                          <span className="material-icons-outlined text-base text-indigo-400 mr-1.5">integration_instructions</span>
-                        Instructions to Solve (Level {currentInstructionLevelIndex + 1} of {instructionLevels.length}):
+                        Instructions to Solve (Level {currentInstructionLevel}):
                     </h4>
-                    {renderInstructionList(currentInstructionsContent)}
-
+                    {renderInstructionSteps(displayedInstructions)}
+                    
                     <div className="mt-3 flex flex-wrap gap-2">
-                        {currentInstructionLevelIndex < MAX_INSTRUCTION_LEVEL_INDEX && (
+                        {hasMoreInstructions && (
                             <button 
                                 type="button" 
                                 onClick={handleMoreInstructions}
-                                className="bg-gray-600 hover:bg-gray-500 text-white font-medium py-1.5 px-3 rounded-md flex items-center gap-1 transition-colors text-xs shadow focus:outline-none focus:ring-1 focus:ring-indigo-500 ring-offset-1 ring-offset-gray-800"
+                                disabled={isLoadingInstructions}
+                                className="bg-gray-600 hover:bg-gray-500 text-white font-medium py-1.5 px-3 rounded-md flex items-center gap-1 transition-colors text-xs shadow focus:outline-none focus:ring-1 focus:ring-indigo-500 ring-offset-1 ring-offset-gray-800 disabled:opacity-60 disabled:cursor-not-allowed"
                             >
-                                <span className="material-icons-outlined text-sm">unfold_more</span>
-                                More Instructions
+                                {isLoadingInstructions ? (
+                                    <>
+                                        <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin mr-1.5"></div>
+                                        <span>Loading...</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <span className="material-icons-outlined text-sm">unfold_more</span>
+                                        More Instructions
+                                    </>
+                                )}
                             </button>
                         )}
                         <button 
@@ -474,6 +505,7 @@ const ResultDisplayComponent: React.FC<ResultDisplayProps> = ({
                     )}
                 </div>
 
+                {/* User Solution Input */}
                 <div>
                     <label htmlFor="practice-solution" className="block text-sm font-medium text-gray-400 mb-1.5">
                         Your Solution ({LanguageDisplayNames[language || SupportedLanguage.UNKNOWN]}):
@@ -481,15 +513,18 @@ const ResultDisplayComponent: React.FC<ResultDisplayProps> = ({
                     <div className="bg-gray-700/60 border border-gray-600 rounded-md overflow-hidden focus-within:ring-1 focus-within:ring-indigo-500 focus-within:border-indigo-500 custom-scrollbar-small shadow-sm">
                         <Editor
                             value={practiceSolution} onValueChange={code => setPracticeSolution(code)}
-                            highlight={robustPracticeSolutionHighlight} padding={12}
-                            textareaClassName="code-editor-textarea !text-gray-200 !font-fira-code" preClassName="code-editor-pre !font-fira-code"
-                            className="text-xs min-h-[160px] max-h-[320px] overflow-y-auto"
+                            highlight={robustPracticeSolutionHighlight} // Use the robust highlighter
+                            padding={12} // Consistent padding
+                            textareaClassName="code-editor-textarea !text-gray-200 !font-fira-code" // Ensure text color and font
+                            preClassName="code-editor-pre !font-fira-code"
+                            className="text-xs min-h-[160px] max-h-[320px] overflow-y-auto" // Control size and scroll
                             disabled={isCheckingSolution}
                             placeholder={`// Enter your ${LanguageDisplayNames[language || SupportedLanguage.UNKNOWN]} code here...`}
                             aria-label="Practice solution input area"
                         />
                     </div>
                      <div className="mt-3 flex flex-col sm:flex-row justify-end items-center gap-2.5">
+                        {/* Loading indicator for checking solution */}
                         {isCheckingSolution && <div className="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin order-first sm:order-none"></div>}
                         <button
                             type="button" onClick={handleCheckSolution} disabled={isCheckSolutionDisabled}
@@ -501,7 +536,7 @@ const ResultDisplayComponent: React.FC<ResultDisplayProps> = ({
                     </div>
 
                     {solutionError && <div className="mt-2.5"><ErrorMessage message={solutionError} /></div>}
-
+                    
                     {userSolutionAnalysis && !isCheckingSolution && (
                         <div className="mt-4 p-3.5 bg-gray-700/30 rounded-lg border border-gray-600/50 shadow-md">
                             <h4 className="text-sm font-semibold text-gray-100 mb-2 flex items-center gap-1.5">

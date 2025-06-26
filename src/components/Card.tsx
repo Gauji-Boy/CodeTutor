@@ -15,7 +15,7 @@ interface CardProps {
 // For now, it's left as is but is not actively used in ResultDisplay or FileContentViewer
 // in the updated design.
 
-export const Card: React.FC<CardProps> = ({ title, children, icon, iconColor = "text-blue-400" }) => {
+export const Card: React.FC<CardProps> = ({ title, children, icon, iconColor = "text-indigo-400" }) => {
     return (
         <div className="bg-slate-900 p-4 sm:p-5 rounded-xl shadow-xl border border-slate-800/50">
             <h2 className="text-lg sm:text-xl font-semibold mb-3 sm:mb-4 text-slate-100 font-lexend flex items-center gap-2 border-b border-slate-800/70 pb-2.5 sm:pb-3">

@@ -1,3 +1,4 @@
+
 import React from 'react';
 
 interface TerminalOutputProps {
@@ -7,10 +8,11 @@ interface TerminalOutputProps {
 
 const TerminalOutputComponent: React.FC<TerminalOutputProps> = ({ output, title = "Output" }) => {
     if (typeof output !== 'string') {
-        if (output === null || output === undefined) return null; 
+        if (output === null || output === undefined) return null; // Render nothing if truly null/undefined
     }
 
     const isEmptyOutput = !output || output.trim() === "";
+    // Differentiate between truly empty and output that is just whitespace
     const finalOutput = (!output || output.trim() === "" && output.length > 0) ? "[Output consists of only whitespace]" : output;
     
     const displayOutput = isEmptyOutput ? 

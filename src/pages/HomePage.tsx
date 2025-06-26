@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { toast } from 'react-hot-toast';
 import Editor from 'react-simple-code-editor';
@@ -43,7 +44,18 @@ const HomePageInternal: React.FC<HomePageProps> = ({ initialActivity, onBackToDa
 
     const { preferredInitialDifficulty } = useGlobalSettings();
 
-    const [inputMode, setInputMode] = useState<InputMode>(initialActivity?.type === 'concept_explanation' ? 'conceptTyping' : initialActivity?.type === 'paste_analysis' ? 'pasteCode' : 'fileUpload');
+    // Determine initial input mode based on activity type, defaulting to fileUpload
+    const getInitialInputMode = (activity: ActivityItem | null | undefined): InputMode => {
+        if (!activity) return 'fileUpload';
+        switch (activity.type) {
+            case 'concept_explanation': return 'conceptTyping';
+            case 'paste_analysis': return 'pasteCode';
+            case 'file_analysis':
+            default: return 'fileUpload';
+        }
+    };
+    const [inputMode, setInputMode] = useState<InputMode>(getInitialInputMode(initialActivity));
+
 
     // File Upload Mode
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -58,10 +70,12 @@ const HomePageInternal: React.FC<HomePageProps> = ({ initialActivity, onBackToDa
     const [pastedCodeText, setPastedCodeText] = useState<string>('');
     const [pastedCodeLanguage, setPastedCodeLanguage] = useState<SupportedLanguage | null>(LangEnum.PYTHON);
 
+    // Common state for current analysis context
     const [currentLanguageForAnalysis, setCurrentLanguageForAnalysis] = useState<SupportedLanguage | null>(null);
     const [difficultyForCurrentAnalysis, setDifficultyForCurrentAnalysis] = useState<ExampleDifficulty>(preferredInitialDifficulty);
     const [originalInputForAnalysis, setOriginalInputForAnalysis] = useState<string>("");
 
+    // UI State
     const [isSettingsPanelOpen, setIsSettingsPanelOpen] = useState(false);
     const settingsPanelRef = useRef<HTMLDivElement>(null);
     const settingsButtonRef = useRef<HTMLButtonElement>(null);
@@ -78,22 +92,21 @@ const HomePageInternal: React.FC<HomePageProps> = ({ initialActivity, onBackToDa
                                   label: LanguageDisplayNames[lang]
                               }));
 
-    const resetAnalysisState = useCallback((keepApiKeyError = false) => {
-        if (!keepApiKeyError || !apiKeyMissing) setError(null);
-        else if (apiKeyMissing) {
-            const errMsg = "Critical Setup Error: The API_KEY environment variable is missing. AI functionalities are disabled.";
-            setError(errMsg);
-        }
+    const resetAnalysisState = useCallback((forNewSession: boolean) => {
         setAnalysisResult(null);
         setCurrentLanguageForAnalysis(null);
-        setDifficultyForCurrentAnalysis(preferredInitialDifficulty); 
+        setDifficultyForCurrentAnalysis(preferredInitialDifficulty); // Reset to global preference
         setOriginalInputForAnalysis("");
-
-        if (apiKeyMissing && keepApiKeyError && !error?.includes("Critical Setup Error")) {
-             const errMsg = "Critical Setup Error: The API_KEY environment variable is missing. AI functionalities are disabled.";
-             setError(errMsg);
+        if (forNewSession) {
+            // Only clear error if it's not the critical API key missing error
+            if (apiKeyMissing) {
+                setError("Critical Setup Error: The API_KEY environment variable is missing. AI functionalities are disabled.");
+            } else {
+                setError(null);
+            }
         }
-    }, [apiKeyMissing, error, preferredInitialDifficulty]);
+    }, [preferredInitialDifficulty, apiKeyMissing]);
+
 
     useEffect(() => {
         if (!process.env.API_KEY) {
@@ -103,16 +116,16 @@ const HomePageInternal: React.FC<HomePageProps> = ({ initialActivity, onBackToDa
         }
     }, []);
 
+    // Effect to handle initialActivity loading or new session setup
     useEffect(() => {
         const performInitialAnalysis = async (input: string, lang: SupportedLanguage, type: ActivityItem['type'], title: string, difficultyToUse: ExampleDifficulty) => {
-            setIsLoading(true); setError(null); setAnalysisResult(null);
+            setIsLoading(true); setError(null); setAnalysisResult(null); 
             setOriginalInputForAnalysis(input);
             setCurrentLanguageForAnalysis(lang);
             setDifficultyForCurrentAnalysis(difficultyToUse);
             toast(`Analyzing: ${title}...`, {icon: '⏳'});
             try {
                 let result: AnalysisResult;
-                
                 if (type === 'file_analysis' || type === 'paste_analysis') {
                     result = await analyzeCodeWithGemini(input, lang, difficultyToUse);
                 } else if (type === 'concept_explanation') {
@@ -122,28 +135,30 @@ const HomePageInternal: React.FC<HomePageProps> = ({ initialActivity, onBackToDa
                 }
                 setAnalysisResult(result);
                 
-                if (!initialActivity?.analysisResult) { 
-                    const activityTypeMap: Record<InputMode, ActivityType> = {
+                // If this is a *new* analysis triggered from dashboard (initialActivity.analysisResult was null), then log it.
+                if (initialActivity && !initialActivity.analysisResult && lang) {
+                     const activityTypeMap: Record<InputMode, ActivityType> = {
                         fileUpload: 'file_analysis',
                         conceptTyping: 'concept_explanation',
                         pasteCode: 'paste_analysis',
                     };
-                    const currentActivityType = activityTypeMap[inputMode]; 
-                    const activityTitle = initialActivity?.title || (inputMode === 'fileUpload' && selectedFile?.name ? selectedFile.name : inputMode === 'conceptTyping' ? conceptText : "Pasted Code");
-                    const activityIcon = inputMode === 'fileUpload' ? 'description' : inputMode === 'conceptTyping' ? 'lightbulb' : 'content_paste_search';
-                    const activityColor = inputMode === 'fileUpload' ? 'text-indigo-500' : inputMode === 'conceptTyping' ? 'text-green-500' : 'text-yellow-500';
+                    let logInputMode: InputMode = getInitialInputMode(initialActivity);
+
+                    const currentActivityType = activityTypeMap[logInputMode]; 
+                    const activityIcon = logInputMode === 'fileUpload' ? 'description' : logInputMode === 'conceptTyping' ? 'lightbulb' : 'content_paste_search';
+                    const activityColor = logInputMode === 'fileUpload' ? 'text-indigo-500' : logInputMode === 'conceptTyping' ? 'text-green-500' : 'text-yellow-500';
 
                     onAddActivity({
-                        id: Date.now().toString() + "_reanalyzed",
-                        type: currentActivityType,
-                        title: activityTitle || "Re-analyzed item",
-                        timestamp: new Date(),
-                        summary: `Successfully re-analyzed: ${result.topicExplanation.coreConcepts.substring(0, 50)}...`,
+                        ...initialActivity, // Spread to keep ID, etc.
+                        type: currentActivityType, // Ensure correct type based on mode
+                        title: title || "Analyzed item",
+                        timestamp: new Date(), // Update timestamp for new analysis
+                        summary: `Analyzed: ${result.topicExplanation.coreConcepts.substring(0, 50)}...`,
                         icon: activityIcon,
                         colorClass: activityColor,
                         language: lang,
                         originalInput: input,
-                        analysisResult: result,
+                        analysisResult: result, // Store the new result
                         analysisDifficulty: difficultyToUse
                     });
                 }
@@ -157,54 +172,58 @@ const HomePageInternal: React.FC<HomePageProps> = ({ initialActivity, onBackToDa
         };
 
         if (initialActivity) {
-            let modeToSet: InputMode = 'fileUpload';
-            if (initialActivity.type === 'file_analysis') {
-                modeToSet = 'fileUpload';
-                if (initialActivity.originalInput) {
-                  const mockFile = new File([initialActivity.originalInput], initialActivity.title || "loaded_file.txt", { type: "text/plain" });
-                  setSelectedFile(mockFile);
-                  setCodeContent(initialActivity.originalInput);
-                }
+            const modeToSet = getInitialInputMode(initialActivity);
+            setInputMode(modeToSet);
+
+            if (modeToSet === 'fileUpload' && initialActivity.originalInput) {
+                const mockFile = new File([initialActivity.originalInput], initialActivity.title || "loaded_file.txt", { type: "text/plain" });
+                setSelectedFile(mockFile);
+                setCodeContent(initialActivity.originalInput);
                 setFileLanguage(initialActivity.language || null);
-            } else if (initialActivity.type === 'concept_explanation') {
-                modeToSet = 'conceptTyping';
+            } else if (modeToSet === 'conceptTyping') {
                 setConceptText(initialActivity.originalInput || '');
                 setConceptLanguage(initialActivity.language || LangEnum.PYTHON);
-            } else if (initialActivity.type === 'paste_analysis') {
-                modeToSet = 'pasteCode';
+            } else if (modeToSet === 'pasteCode') {
                 setPastedCodeText(initialActivity.originalInput || '');
                 setPastedCodeLanguage(initialActivity.language || LangEnum.PYTHON);
             }
-            setInputMode(modeToSet);
             
             const difficultyForLoadedActivity = initialActivity.analysisDifficulty || preferredInitialDifficulty;
 
-            if (initialActivity.analysisResult) {
+            if (initialActivity.analysisResult) { 
                 setAnalysisResult(initialActivity.analysisResult);
                 setCurrentLanguageForAnalysis(initialActivity.language || null);
                 setDifficultyForCurrentAnalysis(difficultyForLoadedActivity);
                 setOriginalInputForAnalysis(initialActivity.originalInput || "");
-                setError(null); setIsLoading(false);
+                if (apiKeyMissing) setError("Critical Setup Error: The API_KEY environment variable is missing. AI functionalities are disabled.");
+                else setError(null); 
+                setIsLoading(false);
                 toast(`Loaded previous analysis: ${initialActivity.title}`, {icon: '📂'});
-            } else if (initialActivity.originalInput && initialActivity.language && initialActivity.language !== LangEnum.UNKNOWN) {
-                performInitialAnalysis(initialActivity.originalInput, initialActivity.language, initialActivity.type, initialActivity.title, difficultyForLoadedActivity);
+            } else if (initialActivity.originalInput && initialActivity.language && initialActivity.language !== LangEnum.UNKNOWN) { 
+                if (apiKeyMissing) {
+                    setError("Critical Setup Error: API_KEY missing. Cannot perform analysis."); setIsLoading(false);
+                } else {
+                    performInitialAnalysis(initialActivity.originalInput, initialActivity.language, initialActivity.type, initialActivity.title, difficultyForLoadedActivity);
+                }
             } else if (initialActivity.originalInput && (!initialActivity.language || initialActivity.language === LangEnum.UNKNOWN)) {
-                setError("Cannot perform analysis: Language for the initial activity is missing or unknown.");
-                setOriginalInputForAnalysis(initialActivity.originalInput);
-                setIsLoading(false); setAnalysisResult(null);
-            } else {
-                resetAnalysisState(true);
-                toast.error("Could not load the selected activity properly. Please start a new analysis.", {icon: '⚠️'});
+                setError("Cannot perform analysis: Language for the initial activity is missing or unknown. Please select a language in the sidebar.");
+                setOriginalInputForAnalysis(initialActivity.originalInput); setIsLoading(false); setAnalysisResult(null);
+            } else { 
+                resetAnalysisState(true); 
+                toast.error("Could not load the selected activity. It appears to be incomplete. Please start a new analysis.", {icon: '⚠️'});
+                setIsLoading(false); 
             }
-        } else {
-            resetAnalysisState(true);
-            setInputMode('fileUpload');
+        } else { 
+            resetAnalysisState(true); 
+            setInputMode('fileUpload'); // Default to fileUpload for a fresh session
             setSelectedFile(null); setCodeContent(null); setFileLanguage(null);
             setConceptText(''); setConceptLanguage(LangEnum.PYTHON);
             setPastedCodeText(''); setPastedCodeLanguage(LangEnum.PYTHON);
+            setIsLoading(false); 
         }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [initialActivity, preferredInitialDifficulty, resetAnalysisState, onAddActivity]);
+    }, [initialActivity, preferredInitialDifficulty, apiKeyMissing, onAddActivity]); // Removed resetAnalysisState from deps as it's stable
+
 
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
@@ -213,45 +232,39 @@ const HomePageInternal: React.FC<HomePageProps> = ({ initialActivity, onBackToDa
                 setIsSettingsPanelOpen(false);
             }
         };
-        
-        let timeoutId: NodeJS.Timeout;
-        if (isSettingsPanelOpen) {
-            // Debounce the event listener addition
-            timeoutId = setTimeout(() => {
-                document.addEventListener('mousedown', handleClickOutside);
-            }, 100);
-        }
-        
-        return () => {
-            if (timeoutId) clearTimeout(timeoutId);
-            document.removeEventListener('mousedown', handleClickOutside);
-        };
+        if (isSettingsPanelOpen) document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
     }, [isSettingsPanelOpen]);
 
     const toggleSettingsPanel = () => setIsSettingsPanelOpen(prev => !prev);
 
     const handleInputModeChange = (newMode: InputMode) => {
+        if (isLoading) return; 
+        
         if (inputMode !== newMode || initialActivity) { 
-            resetAnalysisState(apiKeyMissing);
+            resetAnalysisState(true); 
             setInputMode(newMode);
-            if (newMode !== 'fileUpload' || (initialActivity && initialActivity.type !== 'file_analysis')) {
-                 setSelectedFile(null); setCodeContent(null); setFileLanguage(null);
-            }
-            if (newMode !== 'conceptTyping' || (initialActivity && initialActivity.type !== 'concept_explanation')) {
-                setConceptText('');
-            }
-            if (newMode !== 'pasteCode' || (initialActivity && initialActivity.type !== 'paste_analysis')) {
-                setPastedCodeText('');
-            }
 
-            if (newMode === 'conceptTyping' && (!conceptLanguage || (initialActivity && initialActivity.type !== 'concept_explanation'))) setConceptLanguage(LangEnum.PYTHON);
-            if (newMode === 'pasteCode' && (!pastedCodeLanguage || (initialActivity && initialActivity.type !== 'paste_analysis'))) setPastedCodeLanguage(LangEnum.PYTHON);
+            if (newMode === 'fileUpload') {
+                setConceptText(''); setPastedCodeText('');
+                // Retain file related states if they were already set, or clear them if switching from other modes
+                // setSelectedFile(null); setCodeContent(null); setFileLanguage(null); // Option: aggressively clear
+            } else if (newMode === 'conceptTyping') {
+                setSelectedFile(null); setCodeContent(null); setFileLanguage(null);
+                setPastedCodeText('');
+                if (!conceptLanguage) setConceptLanguage(LangEnum.PYTHON); 
+            } else { // pasteCode
+                setSelectedFile(null); setCodeContent(null); setFileLanguage(null);
+                setConceptText('');
+                if (!pastedCodeLanguage) setPastedCodeLanguage(LangEnum.PYTHON); 
+            }
         }
     };
 
     const handleFileSelect = useCallback((file: File) => {
-        setSelectedFile(file); resetAnalysisState(apiKeyMissing);
-        setCodeContent(null); setFileLanguage(null);
+        setSelectedFile(file); 
+        resetAnalysisState(false); 
+        setCodeContent(null); setFileLanguage(null); // Clear previous file-specific states
         const reader = new FileReader();
         reader.onload = (e) => {
             const content = e.target?.result as string;
@@ -263,7 +276,7 @@ const HomePageInternal: React.FC<HomePageProps> = ({ initialActivity, onBackToDa
                 const errMsg = `Unsupported file type: ${extension}. Please select a language manually or upload a supported file.`;
                 setError(errMsg); toast.error(errMsg);
             } else {
-                if (!apiKeyMissing) setError(null);
+                if (!apiKeyMissing) setError(null); 
                 toast.success(`Loaded "${file.name}". Language: ${LanguageDisplayNames[detectedLang]}.`);
             }
         };
@@ -276,31 +289,39 @@ const HomePageInternal: React.FC<HomePageProps> = ({ initialActivity, onBackToDa
 
     const handleFileLanguageChange = useCallback((newLanguage: SupportedLanguage) => {
         setFileLanguage(newLanguage);
-        if (error?.startsWith("Unsupported file type") && !apiKeyMissing) setError(null);
+        if (error?.startsWith("Unsupported file type") && !apiKeyMissing && newLanguage !== LangEnum.UNKNOWN) setError(null);
         toast(`Language set to ${LanguageDisplayNames[newLanguage]}.`);
     }, [error, apiKeyMissing]);
 
     const handleConceptTextChange = (event: React.ChangeEvent<HTMLInputElement>) => {
         setConceptText(event.target.value);
-        if (event.target.value.trim() && (analysisResult || (error && !apiKeyMissing))) resetAnalysisState(apiKeyMissing);
+        if (event.target.value.trim() && (analysisResult || (error && !apiKeyMissing))) {
+             resetAnalysisState(false);
+        }
     };
 
     const handleConceptLanguageChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
         const newLang = event.target.value as SupportedLanguage;
         setConceptLanguage(newLang);
-        if ((analysisResult || (error && !apiKeyMissing))) resetAnalysisState(apiKeyMissing);
+        if ((analysisResult || (error && !apiKeyMissing))) {
+            resetAnalysisState(false);
+        }
         if (newLang && newLang !== LangEnum.UNKNOWN) toast(`Language context: ${LanguageDisplayNames[newLang]}.`);
     };
 
     const handlePastedCodeTextChange = (code: string) => {
         setPastedCodeText(code);
-        if (code.trim() && (analysisResult || (error && !apiKeyMissing))) resetAnalysisState(apiKeyMissing);
+        if (code.trim() && (analysisResult || (error && !apiKeyMissing))) {
+             resetAnalysisState(false);
+        }
     };
 
     const handlePastedCodeLanguageChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
         const newLang = event.target.value as SupportedLanguage;
         setPastedCodeLanguage(newLang);
-        if ((analysisResult || (error && !apiKeyMissing))) resetAnalysisState(apiKeyMissing);
+        if ((analysisResult || (error && !apiKeyMissing))) {
+            resetAnalysisState(false);
+        }
         if (newLang && newLang !== LangEnum.UNKNOWN) toast(`Language for pasted code: ${LanguageDisplayNames[newLang]}.`);
     };
 
@@ -311,10 +332,11 @@ const HomePageInternal: React.FC<HomePageProps> = ({ initialActivity, onBackToDa
             setIsLoading(false); return;
         }
 
-        if (error && !error.includes("Critical Setup Error")) setError(null);
-        setAnalysisResult(null); setIsLoading(true);
+        setError(null); 
+        setAnalysisResult(null); 
+        setIsLoading(true);
 
-        const initialDifficultyForThisAnalysis = preferredInitialDifficulty;
+        const initialDifficultyForThisAnalysis = preferredInitialDifficulty; // Use global setting
         setDifficultyForCurrentAnalysis(initialDifficultyForThisAnalysis); 
 
         let submittedOriginalInput = "";
@@ -360,8 +382,8 @@ const HomePageInternal: React.FC<HomePageProps> = ({ initialActivity, onBackToDa
             }
 
             setAnalysisResult(result); setCurrentLanguageForAnalysis(currentLang);
-            setOriginalInputForAnalysis(submittedOriginalInput);
-            if (error && !error.includes("Critical Setup Error")) setError(null);
+            setOriginalInputForAnalysis(submittedOriginalInput); // Set this for ResultDisplay context
+            if (error && !error.includes("Critical Setup Error")) setError(null); // Clear non-critical errors
 
             if (onAddActivity && currentLang) {
                 const newActivity: ActivityItem = {
@@ -369,7 +391,7 @@ const HomePageInternal: React.FC<HomePageProps> = ({ initialActivity, onBackToDa
                     type: activityType,
                     title: activityTitle,
                     timestamp: new Date(),
-                    summary: `${result.topicExplanation.coreConcepts.substring(0, 70)}...`, // Access coreConcepts correctly
+                    summary: `${result.topicExplanation.coreConcepts.substring(0, 70)}...`, 
                     icon: activityIcon,
                     colorClass: activityColor,
                     language: currentLang,
@@ -396,6 +418,9 @@ const HomePageInternal: React.FC<HomePageProps> = ({ initialActivity, onBackToDa
 
     const handleCloseFullScreenCodeModal = () => {
         setIsFullScreenCodeModalOpen(false);
+        // Optionally clear content after closing if preferred
+        // setFullScreenCodeContent(''); 
+        // setFullScreenCodeLanguage(LangEnum.UNKNOWN);
     };
 
     const isAnalyzeButtonDisabled = isLoading || apiKeyMissing ||
@@ -428,49 +453,31 @@ const HomePageInternal: React.FC<HomePageProps> = ({ initialActivity, onBackToDa
         currentWelcomeIcon = 'integration_instructions';
     }
 
-    const prismLanguageForPastedCodeEditor = getPrismLanguageString(pastedCodeLanguage || LangEnum.PYTHON);
+    const prismLanguageForPastedCodeEditor = getPrismLanguageString(pastedCodeLanguage || LangEnum.PYTHON); // Default to python for editor if null
     
-    const robustHighlight = useCallback((code: string, lang: string) => {
-        if (typeof Prism === 'undefined' || !Prism.highlight || !code) return escapeHtml(code || '');
-        
-        // Cache highlighted code to avoid re-computation
-        const cacheKey = `${lang}_${code.substring(0, 100)}`;
-        if (highlightCache.has(cacheKey)) {
-            return highlightCache.get(cacheKey)!;
-        }
-        
-        const grammar = Prism.languages[lang] || Prism.languages.clike;
+    // Robust highlight function for the Editor component, using Prism directly
+    const robustHighlight = (code: string, lang: string) => {
+        if (typeof Prism === 'undefined' || !Prism.highlight || !code) return escapeHtml(code || ''); // Ensure Prism is loaded and code exists
+        const grammar = Prism.languages[lang] || Prism.languages.clike; // Fallback to clike
         if (grammar) { 
             try { 
-                const highlighted = Prism.highlight(code, grammar, lang);
-                highlightCache.set(cacheKey, highlighted);
-                
-                // Limit cache size
-                if (highlightCache.size > 50) {
-                    const firstKey = highlightCache.keys().next().value;
-                    highlightCache.delete(firstKey);
-                }
-                
-                return highlighted;
+                return Prism.highlight(code, grammar, lang); 
             } catch (e) { 
                 console.warn(`Prism highlighting failed for ${lang} in editor:`, e); 
             } 
         }
-        const escaped = escapeHtml(code);
-        highlightCache.set(cacheKey, escaped);
-        return escaped;
-    }, []);
-
-    // Add cache for highlighted code
-    const highlightCache = useRef(new Map<string, string>());
+        return escapeHtml(code); // Fallback for safety
+    };
 
 
-    const stickyTopOffset = "md:top-[calc(3.5rem+1.5rem)]"; 
-    const panelHeight = "md:h-[calc(100vh-3.5rem-3rem)]";
+    // Define sticky top offset for the sidebar and result panel based on header height
+    const stickyTopOffset = "md:top-[calc(3.5rem+1.5rem)]"; // Header height (3.5rem) + desired gap (1.5rem)
+    const panelHeight = "md:h-[calc(100vh-3.5rem-3rem)]"; // Full viewport height - header - total vertical padding/gap
 
 
     return (
         <div className="flex flex-col min-h-screen bg-gray-900 text-gray-200">
+            {/* Header */}
             <header className="py-3 px-4 sm:px-6 flex justify-between items-center sticky top-0 z-50 bg-gray-900/80 backdrop-blur-md border-b border-gray-700/60 h-14">
                 <div className="flex items-center">
                     {onBackToDashboard && (
@@ -496,9 +503,12 @@ const HomePageInternal: React.FC<HomePageProps> = ({ initialActivity, onBackToDa
                 </div>
             </header>
 
+            {/* Main Content Area */}
             <main className="flex-grow flex flex-col md:flex-row p-4 sm:p-6 gap-4 sm:gap-6">
+                 {/* Left Sidebar for Inputs */}
                  <aside className={`w-full md:w-[32rem] lg:w-[36rem] md:flex-shrink-0 bg-gray-800 rounded-xl shadow-2xl p-4 sm:p-6 flex flex-col mb-6 md:mb-0 md:sticky ${stickyTopOffset} ${panelHeight}`}>
-                    <div className="flex-grow space-y-5 overflow-y-auto custom-scrollbar-small pr-1"> 
+                    {/* Input Method Selection */}
+                    <div className="flex-grow space-y-5 overflow-y-auto custom-scrollbar-small pr-1"> {/* Added pr-1 for scrollbar */}
                         <div>
                             <h2 className="text-sm sm:text-base font-semibold text-white mb-2">Input Method</h2>
                             <div className="grid grid-cols-3 gap-2">
@@ -513,7 +523,7 @@ const HomePageInternal: React.FC<HomePageProps> = ({ initialActivity, onBackToDa
 
                                     return (
                                         <button key={mode} onClick={() => handleInputModeChange(mode)}
-                                            className={combinedClasses}>
+                                            className={combinedClasses} disabled={isLoading}>
                                             <span className="material-icons-outlined text-base sm:text-lg mb-0.5 sm:mb-0">{icon}</span>
                                             <span>{label}</span>
                                         </button>
@@ -522,17 +532,19 @@ const HomePageInternal: React.FC<HomePageProps> = ({ initialActivity, onBackToDa
                             </div>
                         </div>
 
+                        {/* File Upload UI */}
                         {inputMode === 'fileUpload' && (
                             <FileUpload
                                 onFileSelect={handleFileSelect}
                                 selectedFile={selectedFile}
                                 selectedLanguage={fileLanguage}
                                 onLanguageChange={handleFileLanguageChange}
-                                onSubmit={handleSubmit} 
+                                onSubmit={handleSubmit} // onSubmit is still passed but button is inside FileUpload.tsx
                                 isLoading={isLoading}
                             />
                         )}
 
+                        {/* Concept Typing UI */}
                         {inputMode === 'conceptTyping' && (
                             <div className="space-y-3 pt-3 border-t border-gray-700/70">
                                 <div>
@@ -560,6 +572,7 @@ const HomePageInternal: React.FC<HomePageProps> = ({ initialActivity, onBackToDa
                             </div>
                         )}
 
+                        {/* Paste Code UI */}
                         {inputMode === 'pasteCode' && (
                             <div className="space-y-3 pt-3 border-t border-gray-700/70">
                                 <div>
@@ -571,7 +584,7 @@ const HomePageInternal: React.FC<HomePageProps> = ({ initialActivity, onBackToDa
                                                 value={pastedCodeText} onValueChange={handlePastedCodeTextChange}
                                                 highlight={code => robustHighlight(code, prismLanguageForPastedCodeEditor)}
                                                 padding={10} textareaClassName="code-editor-textarea !text-xs !font-fira-code" preClassName="code-editor-pre !text-xs !font-fira-code"
-                                                className="min-h-[150px] max-h-[250px] overflow-y-auto !text-gray-200"
+                                                className="min-h-[150px] max-h-[250px] overflow-y-auto !text-gray-200" // Ensure text color is applied
                                                 disabled={isLoading} placeholder={`// Paste your code here...\n// Select language below.`}
                                                 aria-label="Pasted code input area" aria-labelledby="pasted-code-editor-label"
                                             />
@@ -592,6 +605,7 @@ const HomePageInternal: React.FC<HomePageProps> = ({ initialActivity, onBackToDa
                             </div>
                         )}
 
+                        {/* File Content Viewer - Conditional Render */}
                         {(inputMode === 'fileUpload' && codeContent && fileLanguage && fileLanguage !== LangEnum.UNKNOWN && !isLoading && (!error || error.includes("Critical Setup Error") || !error.startsWith("Unsupported file type"))) && (
                             <div className="pt-3 border-t border-gray-700/60 overflow-y-auto custom-scrollbar-small min-h-0">
                                 <FileContentViewer
@@ -612,6 +626,7 @@ const HomePageInternal: React.FC<HomePageProps> = ({ initialActivity, onBackToDa
                         )}
                     </div>
 
+                    {/* Submit Button - Always at the bottom of sidebar */}
                     <div className="mt-auto pt-4 border-t border-gray-700/70">
                         <button type="button" onClick={handleSubmit} disabled={isAnalyzeButtonDisabled}
                             className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3 px-4 rounded-lg flex items-center justify-center space-x-2 transition-colors font-semibold disabled:bg-gray-600 disabled:text-gray-400 disabled:cursor-not-allowed text-sm shadow-md"
@@ -624,6 +639,7 @@ const HomePageInternal: React.FC<HomePageProps> = ({ initialActivity, onBackToDa
 
                 </aside>
 
+                {/* Right Panel for Results */}
                 <section className={`flex-grow bg-gray-800 rounded-xl shadow-2xl p-4 sm:p-6 md:p-8 flex flex-col ${panelHeight} md:overflow-y-auto custom-scrollbar-small`}>
                     {isLoading && ( <LoadingSpinner loadingText={loadingText} /> )}
 
@@ -639,6 +655,7 @@ const HomePageInternal: React.FC<HomePageProps> = ({ initialActivity, onBackToDa
                         />
                     )}
 
+                    {/* Welcome / Placeholder Screen */}
                     {!isLoading && !error && !analysisResult && (
                          <div className="flex-grow flex flex-col items-center justify-center text-center p-4">
                             <div className="bg-indigo-600/30 p-4 sm:p-5 rounded-full mb-4 sm:mb-6 shadow-lg border border-indigo-500/50">
@@ -651,11 +668,13 @@ const HomePageInternal: React.FC<HomePageProps> = ({ initialActivity, onBackToDa
                             </p>
                          </div>
                     )}
+                     {/* Ensure API key error is always visible if it's the current error and no analysis result */}
                      {!isLoading && error && error.includes("Critical Setup Error") && !analysisResult && (
                         <div className="mt-4 w-full max-w-lg mx-auto"><ErrorMessage message={error} /></div>
                      )}
                 </section>
             </main>
+             {/* Full Screen Code Modal */}
              <FullScreenCodeModal
                 isOpen={isFullScreenCodeModalOpen}
                 code={fullScreenCodeContent}

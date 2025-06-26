@@ -1,3 +1,4 @@
+
 import React from 'react';
 
 interface ErrorMessageProps {
@@ -5,12 +6,14 @@ interface ErrorMessageProps {
 }
 
 const ErrorMessageComponent: React.FC<ErrorMessageProps> = ({ message }) => {
+    // Attempt to split message into a title and details for better formatting
     let errorTitle = "Error Occurred";
     let errorDetails = message;
 
-    const titleSeparators = [": ", " - "]; 
+    const titleSeparators = [": ", " - "]; // Common separators
     for (const separator of titleSeparators) {
         const parts = message.split(separator);
+        // Heuristic: If first part is reasonably short and there's a second part, use it as title
         if (parts.length > 1 && parts[0].length < 80 && parts[0].length > 3) { 
             errorTitle = parts[0];
             errorDetails = parts.slice(1).join(separator);

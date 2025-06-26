@@ -1,10 +1,12 @@
+
 import React, { useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
 import { SupportedLanguage } from '../types';
 import { escapeHtml } from '../utils/textUtils'; // Import centralized utility
 
-declare var Prism: any;
+declare var Prism: any; // Declare Prism to satisfy TypeScript since it's loaded globally
 
+// Helper function to map SupportedLanguage to Prism language strings
 export const getPrismLanguageString = (lang: SupportedLanguage | null | undefined): string => {
     if (!lang) return 'clike'; // Default or for unknown
     switch (lang) {
@@ -29,7 +31,7 @@ export const getPrismLanguageString = (lang: SupportedLanguage | null | undefine
 interface CodeBlockProps {
     code: string;
     language: SupportedLanguage;
-    idSuffix?: string;
+    idSuffix?: string; // Optional suffix for unique IDs if multiple blocks are on a page
 }
 
 const CodeBlockComponent: React.FC<CodeBlockProps> = ({ code, language, idSuffix = "" }) => {
@@ -37,11 +39,13 @@ const CodeBlockComponent: React.FC<CodeBlockProps> = ({ code, language, idSuffix
     const [highlightedHtml, setHighlightedHtml] = useState<string>('');
 
     useEffect(() => {
-        let isMounted = true;
+        let isMounted = true; // To prevent state updates on unmounted component
+
         const highlightCode = () => {
             if (typeof Prism !== 'undefined' && Prism.highlight && code) {
                 const prismLang = getPrismLanguageString(language);
 
+                // Check if language is loaded, try to autoload if not
                 if (!Prism.languages[prismLang] && Prism.plugins && Prism.plugins.autoloader) {
                     Prism.plugins.autoloader.loadLanguages(prismLang, () => {
                         if (isMounted && Prism.languages[prismLang]) {
@@ -50,7 +54,7 @@ const CodeBlockComponent: React.FC<CodeBlockProps> = ({ code, language, idSuffix
                                 setHighlightedHtml(html);
                             } catch (e) {
                                 console.warn(`Prism highlighting failed for ${prismLang} after load:`, e);
-                                setHighlightedHtml(escapeHtml(code));
+                                setHighlightedHtml(escapeHtml(code)); // Fallback to escaped raw code
                             }
                         } else if (isMounted) {
                              console.warn(`Prism grammar for ${prismLang} still not available after trying to load. Displaying raw code.`);
@@ -66,17 +70,20 @@ const CodeBlockComponent: React.FC<CodeBlockProps> = ({ code, language, idSuffix
                         setHighlightedHtml(escapeHtml(code));
                     }
                 } else {
+                    // Autoloader might not be present, or language truly not supported by current Prism setup
                     console.warn(`Prism grammar for ${prismLang} not available. Displaying raw code.`);
                     setHighlightedHtml(escapeHtml(code));
                 }
             } else if (code) {
+                // Prism not available or no code, just escape HTML
                 setHighlightedHtml(escapeHtml(code));
             } else {
-                setHighlightedHtml('');
+                setHighlightedHtml(''); // Handle empty code string
             }
         };
 
         // Defer highlighting slightly to avoid blocking initial render for complex code blocks
+        // This can improve perceived performance.
         const timer = setTimeout(highlightCode, 0); 
 
         return () => {
@@ -101,12 +108,15 @@ const CodeBlockComponent: React.FC<CodeBlockProps> = ({ code, language, idSuffix
     return (
         <div className="relative group">
             <pre
+                // Apply Tailwind classes for background, padding, text color, overflow, rounding.
+                // The `!m-0` is important to override Prism's default margins if any.
                 className={`p-3 sm:p-3.5 !m-0 overflow-auto text-xs custom-scrollbar-small bg-gray-700/70 rounded-md ${prismLanguageClass}`}
                 style={{ tabSize: 4 }} // Consistent tab size
             >
                 <code
+                    // Apply Tailwind classes for font and ensuring whitespace is preserved.
                     className={`font-fira-code !text-gray-200 whitespace-pre ${prismLanguageClass}`}
-                    dangerouslySetInnerHTML={{ __html: highlightedHtml || escapeHtml(code || '') }}
+                    dangerouslySetInnerHTML={{ __html: highlightedHtml || escapeHtml(code || '') }} // Fallback for safety
                 />
             </pre>
             <button
@@ -122,4 +132,5 @@ const CodeBlockComponent: React.FC<CodeBlockProps> = ({ code, language, idSuffix
         </div>
     );
 };
+// Memoize the component for performance, as code/language props might not change frequently for a given block.
 export const CodeBlock = React.memo(CodeBlockComponent);

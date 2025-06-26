@@ -1,3 +1,4 @@
+
 import React from 'react';
 import type { SupportedLanguage } from '../types';
 import { LanguageDisplayNames, AcceptedFileExtensions, SupportedLanguage as LangEnum } from '../types';
@@ -34,14 +35,14 @@ const FileUploadComponent: React.FC<FileUploadProps> = ({
         label: LanguageDisplayNames[lang]
     }));
 
-    const fileUploadZoneId = "file-drop-zone-main";
-    const fileInputId = "file-upload-input-main";
+    const fileUploadZoneId = "file-drop-zone-main"; // Unique ID
+    const fileInputId = "file-upload-input-main"; // Unique ID
 
     const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
         event.preventDefault(); event.stopPropagation(); if (isLoading) return;
         const dropZone = event.currentTarget;
         dropZone?.classList.remove('border-indigo-500', 'bg-gray-700/30');
-        dropZone?.classList.add('border-gray-600', 'bg-transparent');
+        dropZone?.classList.add('border-gray-600', 'bg-transparent'); // Revert to base style
         if (event.dataTransfer.files && event.dataTransfer.files[0]) {
             onFileSelect(event.dataTransfer.files[0]);
         }
@@ -50,7 +51,7 @@ const FileUploadComponent: React.FC<FileUploadProps> = ({
     const handleDragOver = (event: React.DragEvent<HTMLDivElement>) => {
         event.preventDefault(); event.stopPropagation(); if (isLoading) return;
         const dropZone = event.currentTarget;
-        dropZone?.classList.add('border-indigo-500', 'bg-gray-700/30');
+        dropZone?.classList.add('border-indigo-500', 'bg-gray-700/30'); // Highlight style
         dropZone?.classList.remove('border-gray-600', 'bg-transparent');
     };
 
@@ -61,6 +62,7 @@ const FileUploadComponent: React.FC<FileUploadProps> = ({
         dropZone?.classList.add('border-gray-600', 'bg-transparent');
     };
         
+    // Generate a shorter list of extensions for display
     const displayFileExtensionsShort = "PY, JS, TS, Java, C++, HTML, CSS, etc.";
 
     return (
@@ -106,7 +108,7 @@ const FileUploadComponent: React.FC<FileUploadProps> = ({
                         Language (Override if needed)
                     </label>
                     <select
-                        id="language-select-file"
+                        id="language-select-file" // Ensure unique ID if multiple selects exist on page
                         name="language-select-file"
                         className="w-full bg-gray-700/80 border border-gray-600 text-gray-200 rounded-md p-2.5 text-sm focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 appearance-none bg-no-repeat bg-right-2.5"
                         style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%239ca3af'%3E%3Cpath fill-rule='evenodd' d='M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z' clip-rule='evenodd' /%3E%3C/svg%3E")`, backgroundSize: '1.25em' }}
@@ -122,6 +124,7 @@ const FileUploadComponent: React.FC<FileUploadProps> = ({
                     </select>
                 </div>
             )}
+            {/* The main submit button is now in HomePage.tsx */}
         </div>
     );
 };

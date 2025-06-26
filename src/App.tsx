@@ -1,19 +1,16 @@
 
-
-import React, { useState, useEffect, useCallback, Suspense, lazy } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import DashboardPage from './pages/DashboardPage';
+import { HomePage } from './pages/HomePage';
 import { Toaster, toast } from 'react-hot-toast';
 import { ActivityItem } from './types';
-import { LoadingSpinner } from './components/LoadingSpinner';
-import { ErrorBoundary } from './components/ErrorBoundary';
-
-// Lazy load components for better performance
-const DashboardPage = lazy(() => import('./pages/DashboardPage'));
-const HomePage = lazy(() => import('./pages/HomePage').then(module => ({ default: module.HomePage })));
+import { ErrorMessage } from './components/ErrorMessage'; // Import ErrorMessage
 
 const MAX_ACTIVITIES = 50;
 const ACTIVITY_STORAGE_KEY = 'codeTutorAI_Activities';
 
 const App: React.FC = () => {
+    const [apiKeyMissing, setApiKeyMissing] = useState<boolean>(false);
     const [currentView, setCurrentView] = useState<'dashboard' | 'analysis'>('dashboard');
     const [activityToLoad, setActivityToLoad] = useState<ActivityItem | null>(null);
     const [allActivities, setAllActivities] = useState<ActivityItem[]>(() => {
@@ -21,11 +18,10 @@ const App: React.FC = () => {
             const stored = localStorage.getItem(ACTIVITY_STORAGE_KEY);
             if (stored) {
                 const parsedActivities = JSON.parse(stored) as any[];
-                // Ensure timestamp is a Date object and analysisDifficulty is present
                 return parsedActivities.map(activity => ({
                     ...activity,
-                    timestamp: new Date(activity.timestamp), 
-                    analysisDifficulty: activity.analysisDifficulty || 'easy', // Fallback if old data
+                    timestamp: new Date(activity.timestamp),
+                    analysisDifficulty: activity.analysisDifficulty || 'easy',
                 })).sort((a,b) => b.timestamp.getTime() - a.timestamp.getTime());
             }
         } catch (error) {
@@ -34,50 +30,32 @@ const App: React.FC = () => {
         return [];
     });
 
-    // Debounced storage to prevent excessive writes
     useEffect(() => {
-        const timeoutId = setTimeout(() => {
-            try {
-                const activitiesToStore = allActivities.map(activity => ({
-                    ...activity,
-                    timestamp: activity.timestamp.toISOString(), 
-                    analysisDifficulty: activity.analysisDifficulty || 'easy',
-                }));
-                
-                const serialized = JSON.stringify(activitiesToStore);
-                
-                // Check if localStorage has enough space
-                const estimatedSize = new Blob([serialized]).size;
-                if (estimatedSize > 5 * 1024 * 1024) { // 5MB limit
-                    console.warn('Storage size limit approaching, clearing old activities');
-                    const recentActivities = allActivities.slice(0, MAX_ACTIVITIES / 2);
-                    setAllActivities(recentActivities);
-                    return;
-                }
-                
-                localStorage.setItem(ACTIVITY_STORAGE_KEY, serialized);
-            } catch (error) {
-                console.error("Error saving activities to localStorage:", error);
-                if (error instanceof Error && error.name === 'QuotaExceededError') {
-                    // Clear old activities if storage is full
-                    const recentActivities = allActivities.slice(0, MAX_ACTIVITIES / 2);
-                    setAllActivities(recentActivities);
-                }
-            }
-        }, 500); // 500ms debounce
+        if (!process.env.API_KEY) {
+            setApiKeyMissing(true);
+        }
+    }, []);
 
-        return () => clearTimeout(timeoutId);
+    useEffect(() => {
+        try {
+            const activitiesToStore = allActivities.map(activity => ({
+                ...activity,
+                timestamp: activity.timestamp.toISOString(),
+                analysisDifficulty: activity.analysisDifficulty || 'easy',
+            }));
+            localStorage.setItem(ACTIVITY_STORAGE_KEY, JSON.stringify(activitiesToStore));
+        } catch (error) {
+            console.error("Error saving activities to localStorage:", error);
+        }
     }, [allActivities]);
 
     const addActivity = useCallback((newActivity: ActivityItem) => {
         setAllActivities(prevActivities => {
-            // Ensure new activity has analysisDifficulty, defaulting if somehow missed
             const activityToAdd = {
                 ...newActivity,
-                analysisDifficulty: newActivity.analysisDifficulty || 'easy' 
+                analysisDifficulty: newActivity.analysisDifficulty || 'easy'
             };
             const updatedActivities = [activityToAdd, ...prevActivities];
-            // Sort by timestamp descending and limit the number of activities
             return updatedActivities
                 .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
                 .slice(0, MAX_ACTIVITIES);
@@ -94,16 +72,14 @@ const App: React.FC = () => {
         toast.success("All activity data has been cleared from storage.");
     }, []);
 
-
     const navigateToAnalysis = (activity: ActivityItem) => {
         if (activity.type === 'settings_update') {
             toast.error("Settings updates cannot be reloaded into the analysis view.", { icon: 'ℹ️', duration: 4000 });
             return;
         }
-        // Ensure activityToLoad has analysisDifficulty, defaulting if necessary from older stored items
         setActivityToLoad({
             ...activity,
-            analysisDifficulty: activity.analysisDifficulty || 'easy' 
+            analysisDifficulty: activity.analysisDifficulty || 'easy'
         });
         setCurrentView('analysis');
     };
@@ -113,36 +89,80 @@ const App: React.FC = () => {
         setCurrentView('dashboard');
     };
 
+    if (apiKeyMissing) {
+        return (
+            <div className="flex flex-col min-h-screen bg-gray-900 text-gray-200 items-center justify-center p-4 sm:p-8 text-center">
+                <div className="max-w-2xl w-full">
+                    <ErrorMessage message="Critical Setup Error: The API_KEY environment variable is missing. This application requires a Google Gemini API key to function. Please refer to the setup instructions in the README.md file to configure your API_KEY." />
+                    <p className="mt-4 text-sm text-gray-400">
+                        After configuring the API key, please refresh this page.
+                    </p>
+                    <a 
+                        href="README.md" 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="mt-6 inline-block bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2.5 px-6 rounded-lg shadow-md transition-colors duration-150"
+                    >
+                        View Setup Instructions (README.md)
+                    </a>
+                </div>
+            </div>
+        );
+    }
+
     return (
-        <ErrorBoundary>
+        <>
             <Toaster
                 position="top-center"
                 toastOptions={{
                     duration: 3500,
-                    style: { background: 'var(--bg-tertiary)', color: 'var(--text-primary)', borderRadius: '0.375rem', padding: '10px 16px', fontSize: '0.9rem', boxShadow: '0 4px 12px rgba(0,0,0,0.4)' },
-                    success: { iconTheme: { primary: 'var(--accent-primary)', secondary: 'var(--bg-primary)' } },
-                    error: { iconTheme: { primary: '#f43f5e', secondary: 'var(--bg-primary)' } },
+                    style: {
+                        background: 'var(--bg-secondary)', 
+                        color: 'var(--text-primary)',      
+                        borderRadius: '0.5rem',            
+                        padding: '12px 18px',              
+                        fontSize: '0.9rem',                
+                        border: '1px solid var(--border-color)', 
+                        boxShadow: '0 5px 15px rgba(0,0,0,0.3)', 
+                    },
+                    success: {
+                        iconTheme: {
+                            primary: '#10B981', 
+                            secondary: 'var(--bg-primary)', 
+                        },
+                    },
+                    error: {
+                        iconTheme: {
+                            primary: '#EF4444', 
+                            secondary: 'var(--bg-primary)',
+                        },
+                        duration: 4500, 
+                    },
+                    loading: {
+                        icon: (
+                            <div className="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+                        ),
+                    },
                 }}
             />
-            <Suspense fallback={<LoadingSpinner loadingText="Loading..." />}>
-                {currentView === 'dashboard' && (
-                    <DashboardPage
-                        activities={allActivities}
-                        onViewActivityDetail={navigateToAnalysis}
-                        onAddActivity={addActivity} 
-                        onClearAllActivities={clearAllActivities} 
-                    />
-                )}
-                {currentView === 'analysis' && (
-                    <HomePage
-                        initialActivity={activityToLoad}
-                        onBackToDashboard={navigateToDashboard}
-                        onAddActivity={addActivity}
-                        onClearAllActivities={clearAllActivities} 
-                    />
-                )}
-            </Suspense>
-        </ErrorBoundary>
+            {currentView === 'dashboard' && (
+                <DashboardPage
+                    activities={allActivities}
+                    onViewActivityDetail={navigateToAnalysis}
+                    onAddActivity={addActivity}
+                    onClearAllActivities={clearAllActivities}
+                />
+            )}
+            {currentView === 'analysis' && (
+                <HomePage
+                    key={activityToLoad ? activityToLoad.id : 'new_analysis_view'} // Added key here
+                    initialActivity={activityToLoad}
+                    onBackToDashboard={navigateToDashboard}
+                    onAddActivity={addActivity}
+                    onClearAllActivities={clearAllActivities}
+                />
+            )}
+        </>
     );
 };
 
