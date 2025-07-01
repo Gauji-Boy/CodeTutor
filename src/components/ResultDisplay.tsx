@@ -1,5 +1,15 @@
 
-import React, { useState, useCallback, useEffect } from 'react';
+
+
+
+
+
+
+
+
+
+
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import toast from 'react-hot-toast';
 import Editor from 'react-simple-code-editor';
 declare var Prism: any; 
@@ -11,15 +21,19 @@ import {
     ExampleDifficulty,
     ExampleDifficultyLevels,
     ExampleDifficultyDisplayNames,
-    // PracticeMaterial removed as it's not directly passed anymore
+    LineByLineExplanation,
+    AssessmentStatus,
+    PracticeMaterial,
 } from '../types'; 
 import { LanguageDisplayNames } from '../types'; 
+import { useGlobalSettings } from '../hooks/useGlobalSettings';
 import { TerminalOutput } from './TerminalOutput';
 import { 
     checkUserSolutionWithGemini, 
     getExampleByDifficulty,
     askFollowUpQuestionWithGemini,
-    getMoreInstructionsFromGemini // New import
+    getMoreInstructionsFromGemini,
+    getPracticeQuestionByDifficulty // New import
 } from '../services/geminiService'; 
 import { ErrorMessage } from './ErrorMessage'; 
 import { CodeBlock, getPrismLanguageString } from './CodeBlock'; 
@@ -78,10 +92,10 @@ const CollapsibleSectionComponent: React.FC<CollapsibleSectionProps> = ({ title,
             </button>
             <div 
                 id={`collapsible-content-${title.replace(/\s+/g, '-').toLowerCase()}`}
-                className={`transition-all duration-300 ease-in-out overflow-hidden ${isExpanded ? 'max-h-[1500px] opacity-100' : 'max-h-0 opacity-50'}`}
+                className={`transition-all duration-300 ease-in-out overflow-x-hidden overflow-y-auto custom-scrollbar-small ${isExpanded ? 'max-h-64 opacity-100' : 'max-h-0 opacity-50'}`}
                 style={{ transitionProperty: 'max-height, opacity' }}
             >
-                <div className="mt-1.5 pl-3 pr-2 py-1.5 border-l-2 border-gray-700/60">
+                <div className="pl-3 pr-3 py-1.5 border-l-2 border-gray-700/60">
                      <div className="text-sm text-gray-300 leading-relaxed prose prose-sm prose-invert max-w-none">
                         {renderFormattedContent(content)}
                     </div>
@@ -118,31 +132,91 @@ interface ResultDisplayProps {
     result: AnalysisResult;
     language: SupportedLanguage; 
     difficultyOfProvidedExample: ExampleDifficulty;
+    initialPracticeDifficulty: ExampleDifficulty;
     originalInputContext: string; // The original code or concept string
     originalInputType: 'code' | 'concept';
 }
+
+const LineByLineBreakdownSection: React.FC<{ breakdown: LineByLineExplanation[], language: SupportedLanguage }> = ({ breakdown, language }) => {
+    const [isExpanded, setIsExpanded] = useState(false);
+
+    if (!breakdown || breakdown.length === 0) {
+        return (
+            <CollapsibleSection
+                title="Line-by-Line Code Breakdown"
+                content="N/A"
+                isExpandedInitially={false}
+                iconName="segment"
+            />
+        );
+    }
+    
+    return (
+        <div className="py-2">
+            <button
+                type="button"
+                onClick={() => setIsExpanded(!isExpanded)}
+                className="w-full flex justify-between items-center text-left text-sm font-medium text-gray-100 hover:text-indigo-300 p-2 rounded-md hover:bg-gray-700/40 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:ring-offset-1 focus:ring-offset-gray-800 transition-colors"
+                aria-expanded={isExpanded}
+                aria-controls="line-by-line-breakdown-content"
+            >
+                <span className="flex items-center">
+                    <span className="material-icons-outlined text-indigo-400 mr-2 text-base">segment</span>
+                    Line-by-Line Code Breakdown
+                </span>
+                <span className={`material-icons-outlined text-lg transform transition-transform duration-200 ${isExpanded ? 'rotate-180' : 'rotate-0'}`}>
+                    expand_more
+                </span>
+            </button>
+            <div
+                id="line-by-line-breakdown-content"
+                className={`transition-all duration-300 ease-in-out overflow-x-hidden overflow-y-auto custom-scrollbar-small ${isExpanded ? 'max-h-80 opacity-100' : 'max-h-0 opacity-50'}`}
+                style={{ transitionProperty: 'max-height, opacity' }}
+            >
+                <div className="pl-3 pr-3 py-1.5 border-l-2 border-gray-700/60">
+                    {breakdown.map((item, index) => (
+                        <div key={`lbl-${index}`} className="py-3 border-b border-gray-700/50 last:border-b-0">
+                            <CodeBlock code={item.code} language={language} idSuffix={`lbl-${index}`} />
+                            <p className="mt-2 text-sm text-gray-300/90 leading-relaxed">{item.explanation}</p>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </div>
+    );
+};
+
 
 const ResultDisplayComponent: React.FC<ResultDisplayProps> = ({ 
     result, 
     language, 
     difficultyOfProvidedExample,
+    initialPracticeDifficulty,
     originalInputContext,
     originalInputType
 }) => {
+    const { preferredInstructionFormat } = useGlobalSettings();
+
     // Example Code states
     const [currentExampleCode, setCurrentExampleCode] = useState<string>(result.exampleCode);
     const [currentExampleCodeOutput, setCurrentExampleCodeOutput] = useState<string>(result.exampleCodeOutput);
     const [selectedExampleDifficulty, setSelectedExampleDifficulty] = useState<ExampleDifficulty>(difficultyOfProvidedExample);
-    
     const [isExampleLoading, setIsExampleLoading] = useState<boolean>(false);
     const [exampleError, setExampleError] = useState<string | null>(null);
     const [showExampleOutput, setShowExampleOutput] = useState(false);
     
-    // Practice Solution states
+    // Practice Section states
+    const [currentPracticeMaterial, setCurrentPracticeMaterial] = useState<PracticeMaterial>(result.practiceSection);
+    const [selectedPracticeDifficulty, setSelectedPracticeDifficulty] = useState<ExampleDifficulty>(initialPracticeDifficulty);
+    const [isPracticeQuestionLoading, setIsPracticeQuestionLoading] = useState<boolean>(false);
+    const [practiceQuestionError, setPracticeQuestionError] = useState<string | null>(null);
+    
+    // User Solution states
     const [practiceSolution, setPracticeSolution] = useState(''); // User's code for practice question
     const [userSolutionAnalysis, setUserSolutionAnalysis] = useState<UserSolutionAnalysis | null>(null);
     const [isCheckingSolution, setIsCheckingSolution] = useState<boolean>(false);
     const [solutionError, setSolutionError] = useState<string | null>(null);
+    const solutionFeedbackRef = useRef<HTMLDivElement>(null);
     
     // Follow-up question states
     const [followUpQuestionText, setFollowUpQuestionText] = useState<string>('');
@@ -150,56 +224,72 @@ const ResultDisplayComponent: React.FC<ResultDisplayProps> = ({
     const [isAskingFollowUp, setIsAskingFollowUp] = useState<boolean>(false);
     const [followUpError, setFollowUpError] = useState<string | null>(null);
 
-    // State for dynamic instructions
+    // Instruction states
+    const [instructionFormat, setInstructionFormat] = useState<'normal' | 'line-by-line'>(preferredInstructionFormat);
     const [displayedInstructions, setDisplayedInstructions] = useState<string[]>([]);
     const [currentInstructionLevel, setCurrentInstructionLevel] = useState<number>(1);
     const [isLoadingInstructions, setIsLoadingInstructions] = useState<boolean>(false);
-    const [hasMoreInstructions, setHasMoreInstructions] = useState<boolean>(true); // Assume more initially
+    const [hasMoreInstructions, setHasMoreInstructions] = useState<boolean>(true);
 
     // State for showing AI's solution to practice question
     const [showSolution, setShowSolution] = useState<boolean>(false);
-    // isLoadingSolution is not strictly needed as solution is pre-fetched for now.
 
     const { coreConcepts, lineByLineBreakdown, executionFlowAndDataTransformation } = result.topicExplanation;
-    const { practiceSection } = result; // Contains questionText, initialInstructions, solutionCode, solutionOutput
 
+    // Effect runs only when the parent 'result' prop (a full new analysis) changes.
     useEffect(() => {
-        // Reset states when the 'result' prop changes (new analysis is loaded)
-        // Reset example code states
+        // Reset example code section
         setCurrentExampleCode(result.exampleCode);
         setCurrentExampleCodeOutput(result.exampleCodeOutput);
         setSelectedExampleDifficulty(difficultyOfProvidedExample);
         setShowExampleOutput(false);
         setIsExampleLoading(false);
         setExampleError(null);
+        
+        // Reset practice question section to the initial one from the new analysis
+        setCurrentPracticeMaterial(result.practiceSection);
+        setSelectedPracticeDifficulty(initialPracticeDifficulty);
+        setIsPracticeQuestionLoading(false);
+        setPracticeQuestionError(null);
 
-        // Reset practice solution states
-        setPracticeSolution('');
-        setUserSolutionAnalysis(null);
-        setSolutionError(null);
-        setIsCheckingSolution(false);
-
-        // Reset follow-up question states
+        // Reset follow-up question section
         setFollowUpQuestionText('');
         setFollowUpAnswer(null);
         setIsAskingFollowUp(false);
         setFollowUpError(null);
+    }, [result, difficultyOfProvidedExample, initialPracticeDifficulty]);
 
-        // Reset instruction states
-        if (practiceSection?.initialInstructions) {
-            setDisplayedInstructions(practiceSection.initialInstructions.split('\n').filter(line => line.trim() !== ''));
+     // This effect runs whenever the practice material is updated (either from initial load or new difficulty).
+    // It resets all dependent state.
+    useEffect(() => {
+        if (!currentPracticeMaterial) return;
+
+        setPracticeSolution('');
+        setUserSolutionAnalysis(null);
+        setSolutionError(null);
+        setShowSolution(false);
+        setInstructionFormat(preferredInstructionFormat);
+
+        if (currentPracticeMaterial.normalInstructionsLevel1) {
+            setDisplayedInstructions(currentPracticeMaterial.normalInstructionsLevel1.filter(line => line.trim() !== ''));
         } else {
             setDisplayedInstructions([]);
         }
         setCurrentInstructionLevel(1);
-        // Determine initial hasMoreInstructions. If initialInstructions is very short or implies it's basic, assume true.
-        // A more robust check might involve analyzing the content of initialInstructions, or AI could provide this for level 1.
-        // For now, default to true, as the AI is prompted to provide at least 3 levels.
-        setHasMoreInstructions(true); 
+        setHasMoreInstructions(true);
         setIsLoadingInstructions(false);
-        setShowSolution(false); // Hide solution on new analysis
+    }, [currentPracticeMaterial, preferredInstructionFormat]);
 
-    }, [result, difficultyOfProvidedExample, practiceSection]);
+    useEffect(() => {
+        if (userSolutionAnalysis && solutionFeedbackRef.current) {
+            setTimeout(() => {
+                solutionFeedbackRef.current?.scrollIntoView({
+                    behavior: 'smooth',
+                    block: 'nearest',
+                });
+            }, 100); // A small delay ensures the DOM is updated before scrolling
+        }
+    }, [userSolutionAnalysis]);
 
     const handleDifficultyChange = useCallback(async (newDifficulty: ExampleDifficulty) => {
         if (newDifficulty === selectedExampleDifficulty && !exampleError && !isExampleLoading) {
@@ -208,7 +298,7 @@ const ResultDisplayComponent: React.FC<ResultDisplayProps> = ({
         }
         if (isExampleLoading) return;
 
-        setIsExampleLoading(true); setExampleError(null); setShowExampleOutput(false); // Reset related states
+        setIsExampleLoading(true); setExampleError(null); setShowExampleOutput(false);
 
         try {
             if (!language || language === SupportedLanguage.UNKNOWN) throw new Error("Language not set for example generation.");
@@ -224,7 +314,39 @@ const ResultDisplayComponent: React.FC<ResultDisplayProps> = ({
         } finally {
             setIsExampleLoading(false);
         }
-    }, [selectedExampleDifficulty, isExampleLoading, language, coreConcepts, exampleError]); // Added exampleError to deps
+    }, [selectedExampleDifficulty, isExampleLoading, language, coreConcepts, exampleError]);
+
+    const handlePracticeDifficultyChange = useCallback(async (newDifficulty: ExampleDifficulty) => {
+        if (newDifficulty === selectedPracticeDifficulty || isPracticeQuestionLoading) return;
+    
+        setIsPracticeQuestionLoading(true);
+        setPracticeQuestionError(null);
+    
+        try {
+            toast(`Fetching ${ExampleDifficultyDisplayNames[newDifficulty]} practice question...`, { icon: '⏳' });
+            if (!language || language === SupportedLanguage.UNKNOWN) {
+                throw new Error("Language not set for practice question generation.");
+            }
+    
+            const newPracticeMaterial = await getPracticeQuestionByDifficulty(
+                coreConcepts,
+                language,
+                newDifficulty
+            );
+    
+            setCurrentPracticeMaterial(newPracticeMaterial);
+            setSelectedPracticeDifficulty(newDifficulty);
+            toast.success(`${ExampleDifficultyDisplayNames[newDifficulty]} practice question loaded!`);
+    
+        } catch (err) {
+            const errorMsg = err instanceof Error ? err.message : "Failed to get the practice question from AI.";
+            setPracticeQuestionError(errorMsg);
+            toast.error(errorMsg);
+            console.error(err);
+        } finally {
+            setIsPracticeQuestionLoading(false);
+        }
+    }, [selectedPracticeDifficulty, isPracticeQuestionLoading, language, coreConcepts]);
 
     const handleCheckSolution = useCallback(async () => {
         if (!practiceSolution.trim()) {
@@ -234,14 +356,10 @@ const ResultDisplayComponent: React.FC<ResultDisplayProps> = ({
 
         try {
             if (!language || language === SupportedLanguage.UNKNOWN) throw new Error("Language not identified, cannot check solution.");
-            if (!practiceSection) throw new Error("Practice material is missing, cannot verify solution accurately.");
+            if (!currentPracticeMaterial) throw new Error("Practice material is missing, cannot verify solution accurately.");
 
             const analysis = await checkUserSolutionWithGemini(
-                practiceSolution, 
-                language, 
-                practiceSection.questionText, 
-                coreConcepts, // General topic context
-                displayedInstructions // Pass all currently revealed instructions
+                practiceSolution, language, currentPracticeMaterial.questionText, coreConcepts, displayedInstructions
             );
             setUserSolutionAnalysis(analysis);
             toast.success("AI feedback on your solution received!");
@@ -251,17 +369,17 @@ const ResultDisplayComponent: React.FC<ResultDisplayProps> = ({
         } finally {
             setIsCheckingSolution(false);
         }
-    }, [practiceSolution, language, practiceSection, coreConcepts, displayedInstructions]);
+    }, [practiceSolution, language, currentPracticeMaterial, coreConcepts, displayedInstructions]);
 
     const handleAskFollowUpQuestion = useCallback(async () => {
         if (!followUpQuestionText.trim() || isAskingFollowUp) return;
         setIsAskingFollowUp(true);
         setFollowUpError(null);
-        setFollowUpAnswer(null); // Clear previous answer
+        setFollowUpAnswer(null);
         toast("Asking AI your question...", { icon: '💬' });
         try {
-            // Create a comprehensive context string from the topic explanation parts
-            const fullExplanationForContext = `Core Concepts: ${coreConcepts}\n\nLine-by-Line Breakdown: ${lineByLineBreakdown}\n\nExecution Flow & Data Transformation: ${executionFlowAndDataTransformation}`;
+            const lineByLineText = lineByLineBreakdown.map(item => `Code: ${item.code}\nExplanation: ${item.explanation}`).join('\n\n');
+            const fullExplanationForContext = `Core Concepts: ${coreConcepts}\n\nLine-by-Line Breakdown: ${lineByLineText}\n\nExecution Flow & Data Transformation: ${executionFlowAndDataTransformation}`;
             const answer = await askFollowUpQuestionWithGemini(followUpQuestionText, fullExplanationForContext, language, originalInputContext, originalInputType);
             setFollowUpAnswer(answer);
             toast.success("AI has responded!");
@@ -275,128 +393,132 @@ const ResultDisplayComponent: React.FC<ResultDisplayProps> = ({
 
     const handleMoreInstructions = useCallback(async () => {
         if (!hasMoreInstructions || isLoadingInstructions) return;
-
         setIsLoadingInstructions(true);
         toast(`Fetching Level ${currentInstructionLevel + 1} instructions...`, { icon: '⏳' });
         try {
-            if (!practiceSection?.questionText || !language || language === SupportedLanguage.UNKNOWN) {
+            if (!currentPracticeMaterial?.questionText || !language || language === SupportedLanguage.UNKNOWN) {
                 throw new Error("Missing context for fetching more instructions.");
             }
             const response = await getMoreInstructionsFromGemini(
-                practiceSection.questionText,
-                displayedInstructions,
-                language,
-                currentInstructionLevel
+                currentPracticeMaterial.questionText, displayedInstructions, language, currentInstructionLevel
             );
-            
             if (response.newInstructionSteps && response.newInstructionSteps.length > 0) {
-                 // Filter out potential "no more instructions" messages if they are not actual steps
-                const actualNewSteps = response.newInstructionSteps.filter(step => 
-                    !step.toLowerCase().includes("no further") && 
-                    !step.toLowerCase().includes("not beneficial") &&
-                    step.trim() !== ""
-                );
-
+                const actualNewSteps = response.newInstructionSteps.filter(step => !step.toLowerCase().includes("no further") && !step.toLowerCase().includes("not beneficial") && step.trim() !== "");
                 if (actualNewSteps.length > 0) {
                     setDisplayedInstructions(prev => [...prev, ...actualNewSteps]);
                     setCurrentInstructionLevel(prev => prev + 1);
                     toast.success(`Level ${currentInstructionLevel + 1} instructions loaded!`, { icon: '📚' });
-                } else if (response.newInstructionSteps.length > 0 && response.newInstructionSteps[0].trim() !== "") { // If AI sent only a message like "No further..."
-                     toast(response.newInstructionSteps[0], { icon: 'ℹ️' }); // Display the AI's message
-                } else { // AI sent empty steps but maybe didn't set hasMoreLevels to false
+                } else if (response.newInstructionSteps.length > 0 && response.newInstructionSteps[0].trim() !== "") {
+                    toast(response.newInstructionSteps[0], { icon: 'ℹ️' });
+                } else {
                     toast("No more detailed instructions available for this level.", { icon: 'ℹ️' });
                 }
             } else {
-                 toast("No more detailed instructions available.", { icon: 'ℹ️' });
+                toast("No more detailed instructions available.", { icon: 'ℹ️' });
             }
             setHasMoreInstructions(response.hasMoreLevels);
-
         } catch (err) {
             const msg = err instanceof Error ? err.message : "Failed to fetch more instructions.";
             toast.error(msg);
             console.error("Error fetching more instructions:", err);
-            // Optionally, set hasMoreInstructions to false on error to prevent repeated failed attempts
-            // setHasMoreInstructions(false); 
         } finally {
             setIsLoadingInstructions(false);
         }
-    }, [practiceSection, displayedInstructions, language, currentInstructionLevel, hasMoreInstructions, isLoadingInstructions]);
+    }, [currentPracticeMaterial, displayedInstructions, language, currentInstructionLevel, hasMoreInstructions, isLoadingInstructions]);
 
+    const getAssessmentDetails = (status?: AssessmentStatus, isCorrect?: boolean) => {
+        let effectiveStatus = status;
+        // Fallback to isCorrect if assessmentStatus is missing
+        if (!effectiveStatus && typeof isCorrect === 'boolean') {
+            effectiveStatus = isCorrect ? 'correct' : 'incorrect';
+        }
+
+        if (!effectiveStatus) return null;
+
+        switch (effectiveStatus) {
+            case 'correct':
+                return {
+                    classes: 'bg-green-600/20 border-green-500/40 text-green-300',
+                    icon: 'check_circle',
+                    text: 'AI Assessment: Correct'
+                };
+            case 'partially_correct':
+                return {
+                    classes: 'bg-orange-500/20 border-orange-500/40 text-orange-300',
+                    icon: 'tips_and_updates',
+                    text: 'AI Assessment: Partially Correct'
+                };
+            case 'incorrect':
+                return {
+                    classes: 'bg-yellow-500/20 border-yellow-500/40 text-yellow-300',
+                    icon: 'warning',
+                    text: 'AI Assessment: Incorrect Solution'
+                };
+            case 'syntax_error':
+                return {
+                    classes: 'bg-red-700/20 border-red-600/40 text-red-300',
+                    icon: 'error',
+                    text: 'AI Assessment: Syntax Error'
+                };
+            case 'unrelated':
+                return {
+                    classes: 'bg-red-700/20 border-red-600/40 text-red-300',
+                    icon: 'help_outline',
+                    text: 'AI Assessment: Unrelated Solution'
+                };
+            default:
+                return null;
+        }
+    };
 
     const isCheckSolutionDisabled = isCheckingSolution || !practiceSolution.trim();
     const prismLanguageForEditor = getPrismLanguageString(language);
 
-    // Robust highlight function for the Editor component, using Prism directly
     const robustPracticeSolutionHighlight = (code: string) => {
-        if (typeof Prism === 'undefined' || !Prism.highlight || !code) return escapeHtml(code || ''); // Ensure Prism is loaded and code exists
+        if (typeof Prism === 'undefined' || !Prism.highlight || !code) return escapeHtml(code || '');
         try {
-            const langGrammar = Prism.languages[prismLanguageForEditor] || Prism.languages.clike; // Fallback to clike
+            const langGrammar = Prism.languages[prismLanguageForEditor] || Prism.languages.clike;
             if (langGrammar) return Prism.highlight(code, langGrammar, prismLanguageForEditor);
         } catch (e) { console.warn(`Error highlighting practice solution with ${prismLanguageForEditor}:`, e); }
-        return escapeHtml(code); // Fallback for safety
+        return escapeHtml(code);
     };
     
-    // Helper to render paragraphs with basic markdown for follow-up answer
     const renderParagraphsForFollowUp = (text: string) => { 
-      if (!text) return null;
-      // Basic markdown for bold and italics
-      const formattedText = text
-        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') 
-        .replace(/\*(.*?)\*/g, '<em>$1</em>');       
-      
-      return formattedText.split('\n').map((paragraph, index) => (
-        <p key={index} dangerouslySetInnerHTML={{ __html: paragraph }}></p>
-      ));
+        if (!text) return null;
+        const formattedText = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\*(.*?)\*/g, '<em>$1</em>');       
+        return formattedText.split('\n').map((paragraph, index) => <p key={index} dangerouslySetInnerHTML={{ __html: paragraph }}></p>);
     };
 
     return (
         <div className="w-full text-left space-y-6 sm:space-y-8">
-            {/* Topic Explanation Section */}
             <section aria-labelledby="topic-explanation-main-title">
                 <h3 id="topic-explanation-main-title" className="text-lg font-semibold text-white mb-2 flex items-center">
                     <span className="material-icons-outlined text-indigo-400 mr-2 text-xl">school</span>Topic Explanation
                 </h3>
                 <div className="bg-gray-700/20 p-1.5 sm:p-2 rounded-lg border border-gray-600/40 divide-y divide-gray-700/50">
                     <CollapsibleSection title="Core Concepts Explained" content={coreConcepts} isExpandedInitially={false} iconName="lightbulb" />
-                    <CollapsibleSection title="Line-by-Line Code Breakdown" content={lineByLineBreakdown} isExpandedInitially={false} iconName="segment" />
+                    <LineByLineBreakdownSection breakdown={lineByLineBreakdown} language={language} />
                     <CollapsibleSection title="Code Execution Flow & Data Transformation" content={executionFlowAndDataTransformation} isExpandedInitially={false} iconName="data_object" />
                 </div>
-
-                {/* Follow-up Question UI */}
                 <div className="mt-4 pt-4 border-t border-gray-700/70 space-y-3">
                     <div>
                         <label htmlFor="follow-up-question" className="block text-xs font-medium text-gray-400 mb-1.5">Ask a Follow-up Question about the Topic:</label>
-                        <textarea
-                            id="follow-up-question" rows={2} value={followUpQuestionText} onChange={(e) => setFollowUpQuestionText(e.target.value)}
-                            placeholder="Type your question..."
-                            className="w-full bg-gray-700/60 border border-gray-600 text-gray-200 rounded-md p-2 text-xs focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 placeholder-gray-500 transition-colors custom-scrollbar-small"
-                            disabled={isAskingFollowUp}
-                        />
-                        <button
-                            type="button" onClick={handleAskFollowUpQuestion} disabled={isAskingFollowUp || !followUpQuestionText.trim()}
-                            className="mt-2 bg-gray-600 hover:bg-gray-500 text-white font-medium py-1.5 px-3 rounded-md flex items-center justify-center gap-1 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1 focus:ring-offset-gray-800 disabled:bg-gray-700 disabled:text-gray-500 text-xs shadow"
-                        >
-                             {isAskingFollowUp ? <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <span className="material-icons-outlined text-sm">question_answer</span>}
+                        <textarea id="follow-up-question" rows={2} value={followUpQuestionText} onChange={(e) => setFollowUpQuestionText(e.target.value)} placeholder="Type your question..." className="w-full bg-gray-700/60 border border-gray-600 text-gray-200 rounded-md p-2 text-xs focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 placeholder-gray-500 transition-colors custom-scrollbar-small" disabled={isAskingFollowUp} />
+                        <button type="button" onClick={handleAskFollowUpQuestion} disabled={isAskingFollowUp || !followUpQuestionText.trim()} className="mt-2 bg-gray-600 hover:bg-gray-500 text-white font-medium py-1.5 px-3 rounded-md flex items-center justify-center gap-1 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1 focus:ring-offset-gray-800 disabled:bg-gray-700 disabled:text-gray-500 text-xs shadow">
+                            {isAskingFollowUp ? <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <span className="material-icons-outlined text-sm">question_answer</span>}
                             {isAskingFollowUp ? 'Asking...' : 'Ask AI'}
                         </button>
                         {followUpError && <div className="mt-2"><ErrorMessage message={followUpError}/></div>}
                         {followUpAnswer && !isAskingFollowUp && (
                             <div className="mt-3 p-3 bg-gray-700/40 rounded-lg border border-gray-600/50">
-                                <h5 className="text-xs font-semibold text-gray-100 mb-1.5 flex items-center gap-1">
-                                    <span className="material-icons-outlined text-sm text-indigo-400">assistant</span>AI's Answer:
-                                </h5>
-                                <div className="text-xs text-gray-300 leading-relaxed whitespace-pre-wrap prose prose-xs prose-invert max-w-none">
-                                   {renderParagraphsForFollowUp(followUpAnswer)}
-                                </div>
+                                <h5 className="text-xs font-semibold text-gray-100 mb-1.5 flex items-center gap-1"><span className="material-icons-outlined text-sm text-indigo-400">assistant</span>AI's Answer:</h5>
+                                <div className="text-xs text-gray-300 leading-relaxed whitespace-pre-wrap prose prose-xs prose-invert max-w-none">{renderParagraphsForFollowUp(followUpAnswer)}</div>
                             </div>
                         )}
                     </div>
                 </div>
             </section>
-
             <div className="border-t border-gray-700/60"></div>
-
-            {/* Example Code Section */}
             <section aria-labelledby="example-code-title">
                 <h3 id="example-code-title" className="text-lg font-semibold text-white mb-3 flex items-center">
                     <span className="material-icons-outlined text-indigo-400 mr-2 text-xl">code_blocks</span>Example Code
@@ -404,36 +526,18 @@ const ResultDisplayComponent: React.FC<ResultDisplayProps> = ({
                 <div className="flex flex-wrap items-center gap-2 mb-3">
                     <span className="text-xs text-gray-400 mr-1">Difficulty:</span>
                     {ExampleDifficultyLevels.map(level => (
-                        <button
-                            key={level} type="button" onClick={() => handleDifficultyChange(level)} disabled={isExampleLoading}
-                            className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors focus:outline-none focus:ring-1 ring-offset-1 ring-offset-gray-800 shadow-sm
-                                ${selectedExampleDifficulty === level ? 'bg-indigo-600 text-white hover:bg-indigo-700 focus:ring-indigo-500' : 'bg-gray-700 hover:bg-gray-600 text-gray-300 focus:ring-indigo-600'}
-                                ${isExampleLoading && selectedExampleDifficulty !== level ? 'cursor-not-allowed opacity-60' : ''}
-                                ${isExampleLoading && selectedExampleDifficulty === level ? 'animate-pulse' : ''}`}
-                            aria-pressed={selectedExampleDifficulty === level}
-                        >
+                        <button key={level} type="button" onClick={() => handleDifficultyChange(level)} disabled={isExampleLoading} className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors focus:outline-none focus:ring-1 ring-offset-1 ring-offset-gray-800 shadow-sm ${selectedExampleDifficulty === level ? 'bg-indigo-600 text-white hover:bg-indigo-700 focus:ring-indigo-500' : 'bg-gray-700 hover:bg-gray-600 text-gray-300 focus:ring-indigo-600'} ${isExampleLoading && selectedExampleDifficulty !== level ? 'cursor-not-allowed opacity-60' : ''} ${isExampleLoading && selectedExampleDifficulty === level ? 'animate-pulse' : ''}`} aria-pressed={selectedExampleDifficulty === level}>
                             {ExampleDifficultyDisplayNames[level]}
                         </button>
                     ))}
                 </div>
-
-                {isExampleLoading && (
-                    <div className="flex items-center justify-center p-3 bg-gray-700/20 rounded-md my-2 text-xs">
-                        <div className="w-3.5 h-3.5 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin mr-2"></div>
-                        <span className="text-gray-400">Generating {ExampleDifficultyDisplayNames[selectedExampleDifficulty]} example...</span>
-                    </div>
-                )}
+                {isExampleLoading && <div className="flex items-center justify-center p-3 bg-gray-700/20 rounded-md my-2 text-xs"><div className="w-3.5 h-3.5 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin mr-2"></div><span className="text-gray-400">Generating {ExampleDifficultyDisplayNames[selectedExampleDifficulty]} example...</span></div>}
                 {exampleError && !isExampleLoading && <ErrorMessage message={`Failed to load example: ${exampleError}`} />}
-
                 {!isExampleLoading && currentExampleCode && (
                     <>
                         <CodeBlock code={currentExampleCode} language={language} idSuffix="example" />
                         <div className="mt-3">
-                            <button
-                                type="button" onClick={() => setShowExampleOutput(!showExampleOutput)}
-                                className="bg-gray-700 hover:bg-gray-600 text-gray-300 border border-gray-600 hover:border-gray-500 py-1.5 px-3 rounded-md text-xs flex items-center gap-1 transition-colors focus:outline-none focus:ring-1 focus:ring-indigo-500 ring-offset-1 ring-offset-gray-800 shadow"
-                                aria-expanded={showExampleOutput} aria-controls="example-output-terminal"
-                            >
+                            <button type="button" onClick={() => setShowExampleOutput(!showExampleOutput)} className="bg-gray-700 hover:bg-gray-600 text-gray-300 border border-gray-600 hover:border-gray-500 py-1.5 px-3 rounded-md text-xs flex items-center gap-1 transition-colors focus:outline-none focus:ring-1 focus:ring-indigo-500 ring-offset-1 ring-offset-gray-800 shadow" aria-expanded={showExampleOutput} aria-controls="example-output-terminal">
                                 {showExampleOutput ? 'Hide' : 'Show'} Output
                                 <span className={`material-icons-outlined text-base transition-transform duration-200 ${showExampleOutput ? 'rotate-180' : ''}`}>expand_more</span>
                             </button>
@@ -442,133 +546,126 @@ const ResultDisplayComponent: React.FC<ResultDisplayProps> = ({
                     </>
                 )}
             </section>
-
             <div className="border-t border-gray-700/60"></div>
-            
-            {/* Practice Question & Instructions Section */}
-            {practiceSection && (
-            <section aria-labelledby="practice-question-title">
-                <h3 id="practice-question-title" className="text-lg font-semibold text-white mb-3 flex items-center">
-                    <span className="material-icons-outlined text-indigo-400 mr-2 text-xl">quiz</span>Practice Question
-                </h3>
-                <div className="text-sm text-gray-300 mb-4 leading-relaxed prose prose-sm prose-invert max-w-none">
-                     {practiceSection.questionText.split('\n').map((line, index) => <p key={index}>{line}</p>)}
-                </div>
-                
-                {/* Dynamic Instructions */}
-                <div className="mb-4">
-                    <h4 className="text-md font-semibold text-gray-100 mb-2 flex items-center">
-                         <span className="material-icons-outlined text-base text-indigo-400 mr-1.5">integration_instructions</span>
-                        Instructions to Solve (Level {currentInstructionLevel}):
-                    </h4>
-                    {renderInstructionSteps(displayedInstructions)}
-                    
-                    <div className="mt-3 flex flex-wrap gap-2">
-                        {hasMoreInstructions && (
-                            <button 
-                                type="button" 
-                                onClick={handleMoreInstructions}
-                                disabled={isLoadingInstructions}
-                                className="bg-gray-600 hover:bg-gray-500 text-white font-medium py-1.5 px-3 rounded-md flex items-center gap-1 transition-colors text-xs shadow focus:outline-none focus:ring-1 focus:ring-indigo-500 ring-offset-1 ring-offset-gray-800 disabled:opacity-60 disabled:cursor-not-allowed"
+            {currentPracticeMaterial && (
+                <section aria-labelledby="practice-question-title">
+                    <h3 id="practice-question-title" className="text-lg font-semibold text-white mb-3 flex items-center">
+                        <span className="material-icons-outlined text-indigo-400 mr-2 text-xl">quiz</span>Practice Question
+                    </h3>
+                    <div className="text-sm text-gray-300 mb-4 leading-relaxed prose prose-sm prose-invert max-w-none">
+                        {currentPracticeMaterial.questionText.split('\n').map((line, index) => <p key={index}>{line}</p>)}
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2 mb-4">
+                        <span className="text-xs text-gray-400 mr-1">Difficulty:</span>
+                        {ExampleDifficultyLevels.map(level => (
+                            <button
+                                key={level}
+                                type="button"
+                                onClick={() => handlePracticeDifficultyChange(level)}
+                                disabled={isPracticeQuestionLoading}
+                                className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors focus:outline-none focus:ring-1 ring-offset-1 ring-offset-gray-800 shadow-sm ${selectedPracticeDifficulty === level ? 'bg-indigo-600 text-white hover:bg-indigo-700 focus:ring-indigo-500' : 'bg-gray-700 hover:bg-gray-600 text-gray-300 focus:ring-indigo-600'} ${isPracticeQuestionLoading && selectedPracticeDifficulty !== level ? 'cursor-not-allowed opacity-60' : ''} ${isPracticeQuestionLoading && selectedPracticeDifficulty === level ? 'animate-pulse' : ''}`}
+                                aria-pressed={selectedPracticeDifficulty === level}
                             >
-                                {isLoadingInstructions ? (
-                                    <>
-                                        <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin mr-1.5"></div>
-                                        <span>Loading...</span>
-                                    </>
-                                ) : (
-                                    <>
-                                        <span className="material-icons-outlined text-sm">unfold_more</span>
-                                        More Instructions
-                                    </>
-                                )}
+                                {ExampleDifficultyDisplayNames[level]}
                             </button>
-                        )}
-                        <button 
-                            type="button" 
-                            onClick={() => setShowSolution(!showSolution)}
-                            className="bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-1.5 px-3 rounded-md flex items-center gap-1 transition-colors text-xs shadow focus:outline-none focus:ring-1 focus:ring-indigo-400 ring-offset-1 ring-offset-gray-800"
-                        >
-                            <span className="material-icons-outlined text-sm">{showSolution ? 'visibility_off' : 'visibility'}</span>
-                            {showSolution ? 'Hide Solution' : 'Show Solution'}
-                        </button>
+                        ))}
                     </div>
 
-                    {showSolution && practiceSection.solutionCode && (
-                        <div className="mt-4 p-3 bg-gray-700/30 rounded-lg border border-gray-600/50">
-                            <h5 className="text-sm font-semibold text-gray-100 mb-2">AI Generated Solution:</h5>
-                            <CodeBlock code={practiceSection.solutionCode} language={language} idSuffix="solution" />
-                            {practiceSection.solutionOutput && (
-                                <TerminalOutput output={practiceSection.solutionOutput} title="Solution Output" />
-                            )}
-                        </div>
-                    )}
-                </div>
+                    {isPracticeQuestionLoading && <div className="flex items-center justify-center p-3 bg-gray-700/20 rounded-md my-2 text-xs"><div className="w-3.5 h-3.5 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin mr-2"></div><span className="text-gray-400">Generating new practice question...</span></div>}
+                    {practiceQuestionError && !isPracticeQuestionLoading && <ErrorMessage message={`Failed to load practice question: ${practiceQuestionError}`} />}
 
-                {/* User Solution Input */}
-                <div>
-                    <label htmlFor="practice-solution" className="block text-sm font-medium text-gray-400 mb-1.5">
-                        Your Solution ({LanguageDisplayNames[language || SupportedLanguage.UNKNOWN]}):
-                    </label>
-                    <div className="bg-gray-700/60 border border-gray-600 rounded-md overflow-hidden focus-within:ring-1 focus-within:ring-indigo-500 focus-within:border-indigo-500 custom-scrollbar-small shadow-sm">
-                        <Editor
-                            value={practiceSolution} onValueChange={code => setPracticeSolution(code)}
-                            highlight={robustPracticeSolutionHighlight} // Use the robust highlighter
-                            padding={12} // Consistent padding
-                            textareaClassName="code-editor-textarea !text-gray-200 !font-fira-code" // Ensure text color and font
-                            preClassName="code-editor-pre !font-fira-code"
-                            className="text-xs min-h-[160px] max-h-[320px] overflow-y-auto" // Control size and scroll
-                            disabled={isCheckingSolution}
-                            placeholder={`// Enter your ${LanguageDisplayNames[language || SupportedLanguage.UNKNOWN]} code here...`}
-                            aria-label="Practice solution input area"
-                        />
-                    </div>
-                     <div className="mt-3 flex flex-col sm:flex-row justify-end items-center gap-2.5">
-                        {/* Loading indicator for checking solution */}
-                        {isCheckingSolution && <div className="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin order-first sm:order-none"></div>}
-                        <button
-                            type="button" onClick={handleCheckSolution} disabled={isCheckSolutionDisabled}
-                            className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2 px-4 rounded-md flex items-center justify-center gap-1.5 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 ring-offset-1 ring-offset-gray-800 disabled:bg-gray-600 disabled:text-gray-400 text-xs shadow"
-                        >
-                            <span className="material-icons-outlined text-base">{isCheckingSolution ? 'hourglass_empty' : 'check_circle'}</span>
-                            {isCheckingSolution ? 'Checking...' : "Check Solution"}
-                        </button>
-                    </div>
-
-                    {solutionError && <div className="mt-2.5"><ErrorMessage message={solutionError} /></div>}
-                    
-                    {userSolutionAnalysis && !isCheckingSolution && (
-                        <div className="mt-4 p-3.5 bg-gray-700/30 rounded-lg border border-gray-600/50 shadow-md">
-                            <h4 className="text-sm font-semibold text-gray-100 mb-2 flex items-center gap-1.5">
-                                <span className="material-icons-outlined text-base text-indigo-400">comment</span>AI Feedback:
-                            </h4>
-                            {typeof userSolutionAnalysis.isCorrect === 'boolean' && (
-                                 <div className={`mb-2 p-2 rounded-md text-xs font-medium flex items-center border ${
-                                     userSolutionAnalysis.isCorrect 
-                                     ? 'bg-indigo-600/10 border-indigo-600/25 text-indigo-300' 
-                                     : 'bg-red-700/20 border-red-600/40 text-red-300' 
-                                 }`}>
-                                   <span className={`material-icons-outlined mr-1.5 text-sm ${
-                                       userSolutionAnalysis.isCorrect 
-                                       ? 'text-indigo-400' 
-                                       : 'text-red-400' 
-                                       }`}>
-                                       {userSolutionAnalysis.isCorrect ? 'verified' : 'error_outline'} 
-                                    </span>
-                                    {userSolutionAnalysis.isCorrect ? 'AI Assessment: Looks Correct!' : 'AI Assessment: Needs Revision.'}
+                    {!isPracticeQuestionLoading && (
+                        <>
+                            <div className="mb-4">
+                                <div className="flex justify-between items-center mb-2 flex-wrap gap-2">
+                                    <h4 className="text-md font-semibold text-gray-100 flex items-center">
+                                        <span className="material-icons-outlined text-base text-indigo-400 mr-1.5">integration_instructions</span>
+                                        Instructions to Solve
+                                    </h4>
+                                    <div className="bg-gray-700/60 p-1 rounded-md flex items-center gap-1 text-xs shadow-sm">
+                                        {(['normal', 'line-by-line'] as const).map(format => (
+                                            <button 
+                                                key={format}
+                                                onClick={() => setInstructionFormat(format)}
+                                                className={`px-2 py-1 rounded-sm font-medium transition-colors focus:outline-none focus:ring-1 focus:ring-offset-1 focus:ring-offset-gray-700 ${instructionFormat === format ? 'bg-indigo-600 text-white focus:ring-indigo-500' : 'bg-transparent text-gray-300 hover:bg-gray-600/70 focus:ring-indigo-600'}`}
+                                                aria-pressed={instructionFormat === format}
+                                            >
+                                                {format === 'normal' ? 'Normal' : 'Line-by-Line'}
+                                            </button>
+                                        ))}
+                                    </div>
                                 </div>
-                            )}
-                            <TerminalOutput output={userSolutionAnalysis.predictedOutput} title="Predicted Output of Your Solution" />
-                            <div className="mt-2.5">
-                                <h5 className="text-xs font-semibold text-gray-200 mb-1">Detailed Feedback:</h5>
-                                <div className="text-xs text-gray-300 leading-relaxed whitespace-pre-wrap prose prose-xs prose-invert max-w-none">
-                                    {userSolutionAnalysis.feedback.split('\n').map((line, index) => <p key={index}>{line}</p>)}
-                                </div>
+
+                                {instructionFormat === 'normal' && (
+                                    <div className="mt-2">
+                                        <p className="text-sm italic text-gray-400 mb-2">Conceptual, step-by-step guidance. Level {currentInstructionLevel}.</p>
+                                        {renderInstructionSteps(displayedInstructions)}
+                                        <div className="mt-3 flex flex-wrap gap-2">
+                                            {hasMoreInstructions && <button type="button" onClick={handleMoreInstructions} disabled={isLoadingInstructions} className="bg-gray-600 hover:bg-gray-500 text-white font-medium py-1.5 px-3 rounded-md flex items-center gap-1 transition-colors text-xs shadow focus:outline-none focus:ring-1 focus:ring-indigo-500 ring-offset-1 ring-offset-gray-800 disabled:opacity-60 disabled:cursor-not-allowed">{isLoadingInstructions ? (<><div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin mr-1.5"></div><span>Loading...</span></>) : (<><span className="material-icons-outlined text-sm">unfold_more</span>More Instructions</>)}</button>}
+                                            <button type="button" onClick={() => setShowSolution(!showSolution)} className="bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-1.5 px-3 rounded-md flex items-center gap-1 transition-colors text-xs shadow focus:outline-none focus:ring-1 focus:ring-indigo-400 ring-offset-1 ring-offset-gray-800">
+                                                <span className="material-icons-outlined text-sm">{showSolution ? 'visibility_off' : 'visibility'}</span>{showSolution ? 'Hide Solution' : 'Show Solution'}
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+                                {instructionFormat === 'line-by-line' && (
+                                    <div className="mt-2">
+                                        <p className="text-sm italic text-gray-400 mb-3">Code construction guidance, one step at a time.</p>
+                                        <div className="max-h-80 overflow-y-auto custom-scrollbar-small pr-2">
+                                            {renderInstructionSteps(currentPracticeMaterial.lineByLineInstructions)}
+                                        </div>
+                                        <div className="mt-3 flex flex-wrap gap-2">
+                                            <button type="button" onClick={() => setShowSolution(!showSolution)} className="bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-1.5 px-3 rounded-md flex items-center gap-1 transition-colors text-xs shadow focus:outline-none focus:ring-1 focus:ring-indigo-400 ring-offset-1 ring-offset-gray-800">
+                                                <span className="material-icons-outlined text-sm">{showSolution ? 'visibility_off' : 'visibility'}</span>{showSolution ? 'Hide Solution' : 'Show Solution'}
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {showSolution && currentPracticeMaterial.solutionCode && (
+                                    <div className="mt-4 p-3 bg-gray-700/30 rounded-lg border border-gray-600/50">
+                                        <h5 className="text-sm font-semibold text-gray-100 mb-2">AI Generated Solution:</h5>
+                                        <CodeBlock code={currentPracticeMaterial.solutionCode} language={language} idSuffix="solution" />
+                                        {currentPracticeMaterial.solutionOutput && <TerminalOutput output={currentPracticeMaterial.solutionOutput} title="Solution Output" />}
+                                    </div>
+                                )}
                             </div>
-                        </div>
+                            <div>
+                                <label htmlFor="practice-solution" className="block text-sm font-medium text-gray-400 mb-1.5">Your Solution ({LanguageDisplayNames[language || SupportedLanguage.UNKNOWN]}):</label>
+                                <div className="bg-gray-700/60 border border-gray-600 rounded-md overflow-hidden focus-within:ring-1 focus-within:ring-indigo-500 focus-within:border-indigo-500 custom-scrollbar-small shadow-sm">
+                                    <Editor value={practiceSolution} onValueChange={code => setPracticeSolution(code)} highlight={robustPracticeSolutionHighlight} padding={12} textareaClassName="code-editor-textarea !text-gray-200 !font-fira-code" preClassName="code-editor-pre !font-fira-code" className="text-xs min-h-[160px] max-h-[320px] overflow-y-auto" disabled={isCheckingSolution} placeholder={`// Enter your ${LanguageDisplayNames[language || SupportedLanguage.UNKNOWN]} code here...`} aria-label="Practice solution input area" />
+                                </div>
+                                <div className="mt-3 flex flex-col sm:flex-row justify-end items-center gap-2.5">
+                                    {isCheckingSolution && <div className="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin order-first sm:order-none"></div>}
+                                    <button type="button" onClick={handleCheckSolution} disabled={isCheckSolutionDisabled} className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2 px-4 rounded-md flex items-center justify-center gap-1.5 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 ring-offset-1 ring-offset-gray-800 disabled:bg-gray-600 disabled:text-gray-400 text-xs shadow">
+                                        <span className="material-icons-outlined text-base">{isCheckingSolution ? 'hourglass_empty' : 'check_circle'}</span>{isCheckingSolution ? 'Checking...' : "Check Solution"}
+                                    </button>
+                                </div>
+                                {solutionError && <div className="mt-2.5"><ErrorMessage message={solutionError} /></div>}
+                                {userSolutionAnalysis && !isCheckingSolution && (() => {
+                                    const assessmentDetails = getAssessmentDetails(userSolutionAnalysis.assessmentStatus, userSolutionAnalysis.isCorrect);
+                                    return (
+                                        <div ref={solutionFeedbackRef} className="mt-4 p-3.5 bg-gray-700/30 rounded-lg border border-gray-600/50 shadow-md">
+                                            <h4 className="text-sm font-semibold text-gray-100 mb-2 flex items-center gap-1.5"><span className="material-icons-outlined text-base text-indigo-400">comment</span>AI Feedback:</h4>
+                                            {assessmentDetails && (
+                                                <div className={`mb-2 p-2 rounded-md text-xs font-medium flex items-center border ${assessmentDetails.classes}`}>
+                                                    <span className="material-icons-outlined mr-1.5 text-sm">{assessmentDetails.icon}</span>
+                                                    {assessmentDetails.text}
+                                                </div>
+                                            )}
+                                            <TerminalOutput output={userSolutionAnalysis.predictedOutput} title="Predicted Output of Your Solution" />
+                                            <div className="mt-2.5">
+                                                <h5 className="text-xs font-semibold text-gray-200 mb-1">Detailed Feedback:</h5>
+                                                <div className="text-xs text-gray-300 leading-relaxed whitespace-pre-wrap prose prose-xs prose-invert max-w-none">{userSolutionAnalysis.feedback.split('\n').map((line, index) => <p key={index}>{line}</p>)}</div>
+                                            </div>
+                                        </div>
+                                    );
+                                })()}
+                            </div>
+                        </>
                     )}
-                </div>
-            </section>
+                </section>
             )}
         </div>
     );

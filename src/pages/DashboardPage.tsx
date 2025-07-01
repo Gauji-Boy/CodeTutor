@@ -1,5 +1,7 @@
 
 
+
+
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import toast from 'react-hot-toast';
 import { SettingsPanel } from '../components/SettingsPanel';
@@ -178,7 +180,6 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ activities, onViewActivit
         setPastedCode('');
         setConceptDescription('');
         
-        toast.success('Preparing analysis...', { duration: 1500 });
         onViewActivityDetail(newActivity); 
     };
     
@@ -211,9 +212,11 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ activities, onViewActivit
         <>
             <div className="flex flex-1">
                 <aside className="w-64 min-h-screen bg-[var(--bg-secondary)] p-4 space-y-6 flex flex-col shadow-lg sticky top-0 h-screen">
-                    <div className="flex items-center space-x-3 px-2 py-2">
-                        <span className="material-icons-outlined text-[var(--accent-primary)] text-3xl">source_code</span>
-                        <h1 className="text-2xl font-bold text-white">CodeTutor AI</h1>
+                    <div className="flex items-center gap-2.5 px-1 py-1">
+                        <div className="bg-gradient-to-br from-indigo-600 to-sky-500 p-2 rounded-lg shadow-md">
+                            <span className="material-icons-outlined text-white text-2xl">model_training</span>
+                        </div>
+                        <h1 className="text-2xl font-bold text-white font-lexend">CodeTutor AI</h1>
                     </div>
                     <nav className="flex-grow space-y-2">
                         <a className="nav-link active" href="#" aria-label="Dashboard">

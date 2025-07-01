@@ -1,11 +1,15 @@
 
+
 import { useState, useEffect, useCallback } from 'react';
 import { ExampleDifficulty, GlobalSettings } from '../types';
 
 const GLOBAL_SETTINGS_KEY = 'codeTutorGlobalSettings';
 
 const defaultSettings: GlobalSettings = {
-    preferredInitialDifficulty: 'easy', // Changed from 'intermediate' to 'easy'
+    preferredInitialDifficulty: 'easy',
+    isLeftPanelCollapsed: false,
+    preferredInstructionFormat: 'normal',
+    defaultPracticeDifficulty: 'intermediate',
 };
 
 export const useGlobalSettings = () => {
@@ -14,11 +18,19 @@ export const useGlobalSettings = () => {
             const storedSettings = localStorage.getItem(GLOBAL_SETTINGS_KEY);
             if (storedSettings) {
                 const parsed = JSON.parse(storedSettings) as Partial<GlobalSettings>;
-                // Ensure all keys are present, falling back to defaults if necessary
                 return {
                     preferredInitialDifficulty: parsed.preferredInitialDifficulty && ['easy', 'intermediate', 'hard'].includes(parsed.preferredInitialDifficulty)
                         ? parsed.preferredInitialDifficulty
                         : defaultSettings.preferredInitialDifficulty,
+                    isLeftPanelCollapsed: typeof parsed.isLeftPanelCollapsed === 'boolean'
+                        ? parsed.isLeftPanelCollapsed
+                        : defaultSettings.isLeftPanelCollapsed,
+                    preferredInstructionFormat: parsed.preferredInstructionFormat && ['normal', 'line-by-line'].includes(parsed.preferredInstructionFormat)
+                        ? parsed.preferredInstructionFormat
+                        : defaultSettings.preferredInstructionFormat,
+                    defaultPracticeDifficulty: parsed.defaultPracticeDifficulty && ['easy', 'intermediate', 'hard'].includes(parsed.defaultPracticeDifficulty)
+                        ? parsed.defaultPracticeDifficulty
+                        : defaultSettings.defaultPracticeDifficulty,
                 };
             }
         } catch (error) {
@@ -42,8 +54,36 @@ export const useGlobalSettings = () => {
         }));
     }, []);
 
+    const setIsLeftPanelCollapsed = useCallback((isCollapsed: boolean) => {
+        setSettings(prevSettings => ({
+            ...prevSettings,
+            isLeftPanelCollapsed: isCollapsed,
+        }));
+    }, []);
+
+    const setPreferredInstructionFormat = useCallback((format: 'normal' | 'line-by-line') => {
+        setSettings(prevSettings => ({
+            ...prevSettings,
+            preferredInstructionFormat: format,
+        }));
+    }, []);
+
+    const setDefaultPracticeDifficulty = useCallback((difficulty: ExampleDifficulty) => {
+        setSettings(prevSettings => ({
+            ...prevSettings,
+            defaultPracticeDifficulty: difficulty,
+        }));
+    }, []);
+
+
     return {
         preferredInitialDifficulty: settings.preferredInitialDifficulty,
         setPreferredInitialDifficulty,
+        isLeftPanelCollapsed: settings.isLeftPanelCollapsed ?? false,
+        setIsLeftPanelCollapsed,
+        preferredInstructionFormat: settings.preferredInstructionFormat,
+        setPreferredInstructionFormat,
+        defaultPracticeDifficulty: settings.defaultPracticeDifficulty,
+        setDefaultPracticeDifficulty,
     };
 };

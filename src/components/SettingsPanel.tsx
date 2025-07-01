@@ -1,3 +1,5 @@
+
+
 import React from 'react';
 import toast from 'react-hot-toast';
 import { ExampleDifficultyLevels, ExampleDifficultyDisplayNames, ActivityItem } from '../types';
@@ -9,7 +11,7 @@ interface SettingsPanelProps {
 }
 
 const SettingsPanelComponent: React.FC<SettingsPanelProps> = ({ onAddActivity, onClearAllActivities }) => {
-    const { preferredInitialDifficulty, setPreferredInitialDifficulty } = useGlobalSettings();
+    const { preferredInitialDifficulty, setPreferredInitialDifficulty, preferredInstructionFormat, setPreferredInstructionFormat, defaultPracticeDifficulty, setDefaultPracticeDifficulty } = useGlobalSettings();
 
     const renderPlaceholder = (text: string) => (
         <p className="px-2 py-1 text-xs text-gray-500 italic">{text}</p>
@@ -62,36 +64,61 @@ const SettingsPanelComponent: React.FC<SettingsPanelProps> = ({ onAddActivity, o
                             ))}
                         </div>
                     </fieldset>
-                </section>
+                    
+                    <fieldset className="mt-3">
+                        <legend id="practice-difficulty-legend" className="block text-xs font-normal text-gray-300 mb-1.5 px-1">
+                            Default Practice Question Difficulty:
+                        </legend>
+                        <div className="flex flex-col space-y-1 sm:space-y-1.5" role="radiogroup" aria-labelledby="practice-difficulty-legend">
+                            {ExampleDifficultyLevels.map((level) => (
+                                <button
+                                    key={level}
+                                    type="button"
+                                    role="radio"
+                                    aria-checked={defaultPracticeDifficulty === level}
+                                    onClick={() => setDefaultPracticeDifficulty(level)}
+                                    className={`w-full px-2 py-1 rounded text-xs font-medium transition-colors duration-150 focus:outline-none focus:ring-1 focus:ring-offset-1 focus:ring-offset-gray-700
+                                        ${defaultPracticeDifficulty === level
+                                            ? 'bg-indigo-600 text-white hover:bg-indigo-700 focus:ring-indigo-500'
+                                            : 'bg-gray-600 hover:bg-gray-500 text-gray-200 focus:ring-indigo-600'
+                                        }`}
+                                    aria-label={`Set default practice question difficulty to ${ExampleDifficultyDisplayNames[level]}`}
+                                >
+                                    {ExampleDifficultyDisplayNames[level]}
+                                </button>
+                            ))}
+                        </div>
+                    </fieldset>
 
-                <hr className="border-gray-600/70" />
+                    <fieldset className="mt-3">
+                        <legend id="instruction-format-legend" className="block text-xs font-normal text-gray-300 mb-1.5 px-1">
+                            Default Instruction Format:
+                        </legend>
+                        <div className="flex flex-col space-y-1 sm:space-y-1.5" role="radiogroup" aria-labelledby="instruction-format-legend">
+                            {(['normal', 'line-by-line'] as const).map((format) => (
+                                <button
+                                    key={format}
+                                    type="button"
+                                    role="radio"
+                                    aria-checked={preferredInstructionFormat === format}
+                                    onClick={() => setPreferredInstructionFormat(format)}
+                                    className={`w-full px-2 py-1 rounded text-xs font-medium transition-colors duration-150 focus:outline-none focus:ring-1 focus:ring-offset-1 focus:ring-offset-gray-700
+                                        ${preferredInstructionFormat === format
+                                            ? 'bg-indigo-600 text-white hover:bg-indigo-700 focus:ring-indigo-500'
+                                            : 'bg-gray-600 hover:bg-gray-500 text-gray-200 focus:ring-indigo-600'
+                                        }`}
+                                >
+                                    {format === 'normal' ? 'Normal (Conceptual)' : 'Line-by-Line (Code)'}
+                                </button>
+                            ))}
+                        </div>
+                    </fieldset>
 
-                {/* Section 2: Appearance (Placeholder) */}
-                <section aria-labelledby="appearance-settings-title">
-                    <h4 id="appearance-settings-title" className="text-xs font-semibold text-indigo-300 mb-1.5 px-1">Appearance</h4>
-                    {renderPlaceholder("Theme Customization (Coming Soon)")}
-                </section>
-
-                <hr className="border-gray-600/70" />
-
-                {/* Section 3: Editor Preferences (Placeholder) */}
-                <section aria-labelledby="editor-settings-title">
-                    <h4 id="editor-settings-title" className="text-xs font-semibold text-indigo-300 mb-1.5 px-1">Editor Preferences</h4>
-                    {renderPlaceholder("Font Size (Coming Soon)")}
-                    {renderPlaceholder("Keybindings (Coming Soon)")}
                 </section>
                 
                 <hr className="border-gray-600/70" />
 
-                {/* Section 4: AI Interaction (Placeholder) */}
-                <section aria-labelledby="ai-settings-title">
-                    <h4 id="ai-settings-title" className="text-xs font-semibold text-indigo-300 mb-1.5 px-1">AI Interaction</h4>
-                    {renderPlaceholder("AI Model Preference (Coming Soon)")}
-                </section>
-
-                <hr className="border-gray-600/70" />
-
-                {/* Section 5: Data Management */}
+                {/* Section 4: Data Management */}
                 <section aria-labelledby="data-management-title">
                     <h4 id="data-management-title" className="text-xs font-semibold text-red-400 mb-1.5 px-1">Data Management</h4>
                     <button

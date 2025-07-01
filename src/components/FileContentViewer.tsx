@@ -6,17 +6,17 @@ import { SupportedLanguage, LanguageDisplayNames } from '../types';
 interface FileContentViewerProps {
     codeContent: string;
     language: SupportedLanguage;
-    onViewFull?: () => void; // New prop
+    onViewFull?: () => void;
+    title: string;
 }
 
-const FileContentViewerComponent: React.FC<FileContentViewerProps> = ({ codeContent, language, onViewFull }) => {
-    const languageName = LanguageDisplayNames[language] || "Source Code";
+const FileContentViewerComponent: React.FC<FileContentViewerProps> = ({ codeContent, language, onViewFull, title }) => {
     return (
         <div className="w-full">
             <div className="flex justify-between items-center mb-2">
                 <h3 className="text-sm font-medium text-white flex items-center">
                     <span className="material-icons-outlined text-indigo-400 mr-1.5 text-lg">description</span>
-                    Your Uploaded {languageName}
+                    {title}
                 </h3>
                 {onViewFull && (
                     <button

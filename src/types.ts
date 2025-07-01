@@ -1,15 +1,25 @@
 
+
+
+
+
+export interface LineByLineExplanation {
+    code: string;
+    explanation: string;
+}
+
 export interface TopicExplanationParts {
     coreConcepts: string;
-    lineByLineBreakdown: string;
+    lineByLineBreakdown: LineByLineExplanation[];
     executionFlowAndDataTransformation: string;
 }
 
 export interface PracticeMaterial {
     questionText: string;
-    initialInstructions: string; // This is Level 1 instructions
-    solutionCode: string;        // Pre-fetched solution code
-    solutionOutput: string;      // Pre-fetched solution output
+    normalInstructionsLevel1: string[]; 
+    lineByLineInstructions: string[]; // Changed from object array to string array
+    solutionCode: string;
+    solutionOutput: string;
 }
 
 export interface AnalysisResult {
@@ -17,12 +27,16 @@ export interface AnalysisResult {
     exampleCode: string;
     exampleCodeOutput: string;
     practiceSection: PracticeMaterial; 
+    detectedLanguage?: SupportedLanguage;
 }
+
+export type AssessmentStatus = 'correct' | 'partially_correct' | 'incorrect' | 'syntax_error' | 'unrelated';
 
 export interface UserSolutionAnalysis {
     predictedOutput: string;
     feedback: string;
     isCorrect?: boolean; 
+    assessmentStatus?: AssessmentStatus;
 }
 
 export enum SupportedLanguage {
@@ -112,6 +126,9 @@ export interface ExampleCodeData {
 // Settings
 export interface GlobalSettings {
     preferredInitialDifficulty: ExampleDifficulty;
+    isLeftPanelCollapsed?: boolean;
+    preferredInstructionFormat: 'normal' | 'line-by-line';
+    defaultPracticeDifficulty: ExampleDifficulty;
 }
 
 // Activity Log

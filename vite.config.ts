@@ -1,15 +1,12 @@
-/// <reference types="node" />
-
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
-import process from 'node:process'; // Explicitly import process
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
   // Load env file based on mode (development, production)
-  // The third argument specifies the directory to look for .env files (project root)
-  // The fourth argument '' ensures all env variables are loaded, not just VITE_ prefixed ones
-  const env = loadEnv(mode, process.cwd(), ''); 
+  // The second argument specifies the directory to look for .env files (project root)
+  // The third argument '' ensures all env variables are loaded, not just VITE_ prefixed ones
+  const env = loadEnv(mode, '.', ''); 
 
   return {
     plugins: [react()],
