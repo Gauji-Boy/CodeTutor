@@ -1,3 +1,4 @@
+
 import React, { useEffect, useRef } from 'react';
 import { CodeBlock } from './CodeBlock';
 import { SupportedLanguage } from '../types';
@@ -63,9 +64,8 @@ const FullScreenCodeModalComponent: React.FC<FullScreenCodeModalProps> = ({ isOp
                     </button>
                 </header>
 
-                <div className="flex-grow p-0 sm:p-0 overflow-auto custom-scrollbar-small">
-                     {/* The CodeBlock itself handles scrolling and padding, so we make the container tight */}
-                    <CodeBlock code={code} language={language} />
+                <div className="flex-grow flex flex-col p-0 overflow-hidden">
+                    <CodeBlock code={code} language={language} showLineNumbers containerClassName="flex-grow min-h-0" />
                 </div>
                  <footer className="p-3 sm:p-4 border-t border-gray-700/70 text-right flex-shrink-0">
                     <button

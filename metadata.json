@@ -1,5 +1,5 @@
 {
-  "name": "Copy of CodeTutor AI (Main)",
+  "name": "CodeTutor AI (Main)",
   "description": "An AI-powered dashboard to analyze code by uploading files, pasting snippets, or explaining concepts. View recent activity and analysis summaries.",
   "requestFramePermissions": [],
   "prompt": ""

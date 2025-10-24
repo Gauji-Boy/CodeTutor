@@ -20,7 +20,7 @@ const TerminalOutputComponent: React.FC<TerminalOutputProps> = ({ output, title 
         : finalOutput;
 
     return (
-        <div className="mt-2 bg-gray-700/50 rounded-md shadow-inner border border-gray-600/70 overflow-hidden">
+        <div className="mt-2 bg-gray-900/60 rounded-md shadow-inner border border-gray-600/70 overflow-hidden">
             <h4 className="text-xs font-medium text-gray-400 px-2.5 py-1 bg-gray-600/40 border-b border-gray-600/60">
                 {title}:
             </h4>

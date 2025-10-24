@@ -32,9 +32,11 @@ interface CodeBlockProps {
     code: string;
     language: SupportedLanguage;
     idSuffix?: string; // Optional suffix for unique IDs if multiple blocks are on a page
+    showLineNumbers?: boolean;
+    containerClassName?: string;
 }
 
-const CodeBlockComponent: React.FC<CodeBlockProps> = ({ code, language, idSuffix = "" }) => {
+const CodeBlockComponent: React.FC<CodeBlockProps> = ({ code, language, idSuffix = "", showLineNumbers = false, containerClassName = '' }) => {
     const [copied, setCopied] = useState(false);
     const [highlightedHtml, setHighlightedHtml] = useState<string>('');
 
@@ -104,21 +106,28 @@ const CodeBlockComponent: React.FC<CodeBlockProps> = ({ code, language, idSuffix
     };
 
     const prismLanguageClass = `language-${getPrismLanguageString(language)}`;
+    const lineCount = code.split('\n').length;
 
     return (
         <div className="relative group">
-            <pre
-                // Apply Tailwind classes for background, padding, text color, overflow, rounding.
-                // The `!m-0` is important to override Prism's default margins if any.
-                className={`p-3 sm:p-3.5 !m-0 overflow-auto text-xs custom-scrollbar-small bg-gray-700/70 rounded-md ${prismLanguageClass}`}
-                style={{ tabSize: 4 }} // Consistent tab size
-            >
-                <code
-                    // Apply Tailwind classes for font and ensuring whitespace is preserved.
-                    className={`font-fira-code !text-gray-200 whitespace-pre ${prismLanguageClass}`}
-                    dangerouslySetInnerHTML={{ __html: highlightedHtml || escapeHtml(code || '') }} // Fallback for safety
-                />
-            </pre>
+            <div className={`bg-gray-900/60 rounded-md flex text-xs font-fira-code leading-relaxed overflow-auto custom-scrollbar-small ${containerClassName}`}>
+                {showLineNumbers && (
+                    <div className="sticky left-0 z-10 p-3.5 text-right text-gray-500 select-none bg-gray-900/60 border-r border-gray-700/50">
+                        {Array.from({ length: lineCount }, (_, i) => (
+                            <div key={`ln-${idSuffix}-${i + 1}`}>{i + 1}</div>
+                        ))}
+                    </div>
+                )}
+                <pre
+                    className={`!m-0 p-3.5 ${showLineNumbers ? 'flex-grow' : 'w-full'}`}
+                    style={{ tabSize: 4 }}
+                >
+                    <code
+                        className={`!text-gray-200 whitespace-pre ${prismLanguageClass}`}
+                        dangerouslySetInnerHTML={{ __html: highlightedHtml || escapeHtml(code || '') }}
+                    />
+                </pre>
+            </div>
             <button
                 onClick={copyCodeToClipboard}
                 title={copied ? "Copied!" : "Copy code"}

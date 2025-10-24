@@ -1,32 +1,53 @@
-
-
-
-
+export interface BlockExplanation {
+    codeBlock: string;
+    explanation: string;
+}
 
 export interface LineByLineExplanation {
     code: string;
     explanation: string;
 }
 
+export interface VariableStateChange {
+    variable: string;
+    previousValue: any;
+    currentValue: any;
+}
+
+export interface VisualFlowStep {
+    lineNumber: number | null; 
+    explanation: string;
+    variablesState: Record<string, any>;
+    stateChanges?: VariableStateChange[];
+}
+
 export interface TopicExplanationParts {
     coreConcepts: string;
+    blockByBlockBreakdown: BlockExplanation[];
     lineByLineBreakdown: LineByLineExplanation[];
     executionFlowAndDataTransformation: string;
+    visualExecutionFlow: VisualFlowStep[];
 }
 
 export interface PracticeMaterial {
+    title: string;
     questionText: string;
     normalInstructionsLevel1: string[]; 
-    lineByLineInstructions: string[]; // Changed from object array to string array
+    lineByLineInstructions: string[]; 
     solutionCode: string;
     solutionOutput: string;
+}
+
+export interface PracticeContext {
+    generatedQuestion: PracticeMaterial;
+    userCodeAsPractice: PracticeMaterial;
 }
 
 export interface AnalysisResult {
     topicExplanation: TopicExplanationParts;
     exampleCode: string;
     exampleCodeOutput: string;
-    practiceSection: PracticeMaterial; 
+    practiceContext: PracticeContext; 
     detectedLanguage?: SupportedLanguage;
 }
 
@@ -38,6 +59,53 @@ export interface UserSolutionAnalysis {
     isCorrect?: boolean; 
     assessmentStatus?: AssessmentStatus;
 }
+
+// New types for the Debug feature
+export interface IdentifiedError {
+    errorLine?: number;
+    erroneousCode: string;
+    errorType: 'Syntax' | 'Logic' | 'Best Practice' | 'Other';
+    explanation: string;
+    suggestedFix: string;
+}
+
+export interface DebugResult {
+    summary: string;
+    errorAnalysis: IdentifiedError[];
+    correctedCode: string;
+    detectedLanguage?: SupportedLanguage;
+}
+
+// Types for Project Analysis
+export interface ProjectFile {
+    path: string;
+    content: string;
+}
+
+export interface DependencyAnalysis {
+    name: string;
+    description: string;
+}
+
+export interface DependencyInfo {
+    modulePath: string;
+    imports: string[];
+    importedBy: string[];
+    description: string;
+}
+
+export interface ProjectAnalysis {
+    overview: string;
+    fileBreakdown: {
+        path: string;
+        description: string;
+    }[];
+    // Optional fields for generated content
+    dependencyAnalysis?: DependencyAnalysis[];
+    dependencyInfo?: DependencyInfo[];
+    readmeContent?: string;
+}
+
 
 export enum SupportedLanguage {
     PYTHON = "python",
@@ -124,15 +192,36 @@ export interface ExampleCodeData {
 }
 
 // Settings
+export interface TopicExplanationVisibility {
+    masterToggle: boolean;
+    coreConcepts: boolean;
+    blockByBlock: boolean;
+    lineByLine: boolean;
+    executionFlow: boolean;
+    followUp: boolean;
+}
+
 export interface GlobalSettings {
     preferredInitialDifficulty: ExampleDifficulty;
     isLeftPanelCollapsed?: boolean;
     preferredInstructionFormat: 'normal' | 'line-by-line';
     defaultPracticeDifficulty: ExampleDifficulty;
+    visibleSections: {
+        topicExplanation: TopicExplanationVisibility;
+        exampleCode: boolean;
+        practiceQuestion: boolean;
+        instructionsToSolve: boolean;
+    };
+}
+
+// Conversational Chat
+export interface ChatMessage {
+    role: 'user' | 'ai';
+    content: string;
 }
 
 // Activity Log
-export type ActivityType = 'file_analysis' | 'concept_explanation' | 'paste_analysis' | 'settings_update';
+export type ActivityType = 'file_analysis' | 'concept_explanation' | 'paste_analysis' | 'settings_update' | 'debug_analysis' | 'project_analysis';
 
 export interface ActivityItem {
     id: string;
@@ -146,5 +235,11 @@ export interface ActivityItem {
     
     originalInput?: string; 
     analysisResult?: AnalysisResult | null; 
+    debugResult?: DebugResult | null;
     analysisDifficulty?: ExampleDifficulty; 
+    
+    // Fields for project analysis
+    projectFiles?: ProjectFile[] | null;
+    projectAnalysis?: ProjectAnalysis | null;
+    projectChatHistory?: ChatMessage[] | null;
 }

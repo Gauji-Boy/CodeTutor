@@ -1,9 +1,3 @@
-
-
-
-
-
-
 import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
 import { 
     AnalysisResult, 
@@ -14,11 +8,20 @@ import {
     ExampleCodeData,
     PracticeMaterial,
     LineByLineExplanation,
-    AssessmentStatus
+    AssessmentStatus,
+    BlockExplanation,
+    ChatMessage,
+    PracticeContext,
+    VisualFlowStep,
+    DebugResult,
+    ProjectAnalysis,
+    ProjectFile,
+    DependencyAnalysis,
+    DependencyInfo
 } from '../types';
 
 const API_KEY = process.env.API_KEY;
-const API_TIMEOUT_MS = 45000; // 45 seconds
+const API_TIMEOUT_MS = 180000; // 180 seconds
 
 let ai: GoogleGenAI | null = null;
 if (API_KEY) {
@@ -73,25 +76,43 @@ const parseJsonFromAiResponse = <T>(
     }
 
     try {
-        let dataToValidate = JSON.parse(jsonStr); 
+        const parsedJson = JSON.parse(jsonStr);
+        let dataToValidate = parsedJson;
 
-        // If AI returns an array of objects, take the first one.
-        // This is a common pattern observed with some model responses.
-        if (Array.isArray(dataToValidate) && dataToValidate.length > 0) {
-            dataToValidate = dataToValidate[0]; 
-        } else if (Array.isArray(dataToValidate) && dataToValidate.length === 0) {
-            console.error("AI response is an empty array.");
-            throw new Error("AI returned an empty array response.");
+        // Determine if the validator expects an array by testing it with an empty array.
+        // An array-validator should pass, while an object-validator should fail.
+        const validatorExpectsArray = fieldCheck([]) === true;
+
+        if (Array.isArray(dataToValidate)) {
+            if (!validatorExpectsArray) {
+                // The validator wants an object, but we received an array.
+                if (dataToValidate.length === 1) {
+                    // This is likely the AI wrapping a single object response in an array, so we unwrap it.
+                    dataToValidate = dataToValidate[0];
+                } else if (dataToValidate.length === 0) {
+                    // An empty array is not a valid object.
+                    throw new Error("AI returned an empty array, but an object was expected.");
+                }
+                // If length > 1 and an object is expected, it will fail the final validation, which is correct.
+            }
+            // If the validator *does* expect an array, we do nothing here and let it pass to the final validation.
         }
         
         // Pre-validation normalization for common AI response inconsistencies, especially for code fields.
         const normalizeCodeField = (obj: any, fieldName: string) => {
-            if (obj && obj.hasOwnProperty(fieldName)) {
+            if (obj && typeof obj === 'object' && !Array.isArray(obj) && obj.hasOwnProperty(fieldName)) {
                 const codeField = obj[fieldName];
                 
-                // Case 1: AI returns { "code": "...", "language": "..." } or similar object.
-                if (typeof codeField === 'object' && codeField !== null && !Array.isArray(codeField) && typeof codeField.code === 'string') {
-                    obj[fieldName] = codeField.code;
+                // Case 1: AI returns an object like { "code": "..." } or { "exampleCode": "..." }
+                if (typeof codeField === 'object' && codeField !== null && !Array.isArray(codeField)) {
+                    if (typeof codeField.code === 'string') {
+                        obj[fieldName] = codeField.code; // Handles { "code": "..." }
+                        return; // Normalization done
+                    }
+                    if (typeof codeField[fieldName] === 'string') {
+                        obj[fieldName] = codeField[fieldName]; // Handles { "exampleCode": "..." for field 'exampleCode'
+                        return; // Normalization done
+                    }
                 }
                 // Case 2: AI returns an array of code lines.
                 else if (Array.isArray(codeField) && codeField.every((item: any) => typeof item === 'string')) {
@@ -102,8 +123,13 @@ const parseJsonFromAiResponse = <T>(
 
         // Normalize top-level and nested code fields before validation.
         normalizeCodeField(dataToValidate, 'exampleCode');
-        if (dataToValidate && dataToValidate.practiceSection) {
-            normalizeCodeField(dataToValidate.practiceSection, 'solutionCode');
+        if (dataToValidate && dataToValidate.practiceContext) {
+            if(dataToValidate.practiceContext.generatedQuestion) {
+                 normalizeCodeField(dataToValidate.practiceContext.generatedQuestion, 'solutionCode');
+            }
+            if(dataToValidate.practiceContext.userCodeAsPractice) {
+                 normalizeCodeField(dataToValidate.practiceContext.userCodeAsPractice, 'solutionCode');
+            }
         } else {
              // If this is a direct practice material response, normalize its solutionCode
             normalizeCodeField(dataToValidate, 'solutionCode');
@@ -115,13 +141,13 @@ const parseJsonFromAiResponse = <T>(
             return dataToValidate as T; 
         } else {
             // Log the object that failed validation for easier debugging
-            console.error("AI response validation failed:", checkResult, "Validated object (or first element if array):", dataToValidate);
+            console.error("AI response validation failed:", checkResult, "Validated object (original parsed):", parsedJson);
             throw new Error(`AI response validation failed: ${checkResult}. The AI might be unable to process the request as expected. Check console for the actual validated object.`);
         }
     } catch (e) {
         console.error("Failed to parse or validate JSON response from AI:", e);
         console.error("Raw response text (after any sanitization):", jsonStr);
-        if (e instanceof Error && e.message.startsWith("AI response validation failed:")) {
+        if (e instanceof Error && (e.message.startsWith("AI response validation failed:") || e.message.startsWith("AI returned"))) {
             throw e; // Re-throw specific validation errors
         }
         if (e instanceof SyntaxError) {
@@ -131,11 +157,334 @@ const parseJsonFromAiResponse = <T>(
     }
 };
 
+const criticalJsonFormattingRules = `
+CRITICAL JSON FORMATTING RULES:
+- The entire response MUST be a single, valid JSON object.
+- All keys and string values must be enclosed in double quotes (").
+- All special characters inside string values MUST be correctly escaped for JSON.
+  - Double quotes (") must be escaped as \\". For example, a code snippet like \`print("hello")\` MUST be represented in a JSON string as \`"print(\\"hello\\")"\`. This is CRITICAL for fields containing code.
+  - Backslashes (\\) must be escaped as \\\\. For example, a Windows path \`"C:\\Users\\Test"\` MUST be represented as \`"C:\\\\Users\\\\Test"\`.
+  - Newlines must be escaped as \\n.
+- To prevent encoding errors, avoid using complex multi-byte emojis (e.g., 💰, 🍒, 7️⃣). Use simple text representations like "(jackpot)", "(cherry)", or "(seven)" instead.
+- No trailing commas in objects or arrays.
+- All keys within a single JSON object must be unique.
+Adhere to these rules strictly to prevent JSON parsing errors.
+`;
+
+const handleApiError = (error: unknown, defaultMessage: string): Error => {
+    console.error("Error calling Gemini API:", error);
+    if (error instanceof Error) {
+        if (error.message.includes("API key not valid") || error.message.includes("API_KEY_INVALID")) {
+            return new Error("Invalid API Key: The provided API key is not valid. Please check your .env file and ensure the key is correct, then restart your application if it's running locally.");
+        }
+        if (error.message.toLowerCase().includes("quota")) {
+            return new Error("API Quota Exceeded: The free tier for the Gemini API has usage limits which may have been reached. This can be a daily or monthly limit tied to your account or project. Please check your Google AI Studio dashboard for quota details and try again later.");
+        }
+        // Specific errors from parseJsonFromAiResponse or promiseWithTimeout should be re-thrown
+        if (error.message.startsWith("AI response validation failed:") || error.message.startsWith("AI returned malformed JSON.") || error.message.startsWith("AI request timed out")) {
+            return error;
+        }
+    }
+    return new Error(defaultMessage);
+};
+
+const projectAnalysisFieldCheck = (parsed: any): true | string => {
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return "Parsed JSON is not an object.";
+    if (typeof parsed.overview !== 'string') return "Field 'overview' is not a string";
+    if (!Array.isArray(parsed.fileBreakdown)) return "Field 'fileBreakdown' is not an array";
+    const isBreakdownValid = parsed.fileBreakdown.every((item: any) =>
+        typeof item === 'object' && item !== null &&
+        typeof item.path === 'string' &&
+        typeof item.description === 'string'
+    );
+    if (!isBreakdownValid) return "One or more elements in 'fileBreakdown' have an invalid structure.";
+    return true;
+};
+
+const dependencyAnalysisFieldCheck = (parsed: any): true | string => {
+    if (!Array.isArray(parsed)) return "Response is not an array.";
+    const isValid = parsed.every((item: any) =>
+        typeof item === 'object' && item !== null &&
+        typeof item.name === 'string' &&
+        typeof item.description === 'string'
+    );
+    if (!isValid) return "One or more elements in dependency array have an invalid structure.";
+    return true;
+};
+
+const dependencyInfoFieldCheck = (parsed: any): true | string => {
+    if (!Array.isArray(parsed)) return "Response is not an array.";
+    const isValid = parsed.every((item: any) =>
+        typeof item === 'object' && item !== null &&
+        typeof item.modulePath === 'string' &&
+        typeof item.description === 'string' &&
+        Array.isArray(item.imports) &&
+        Array.isArray(item.importedBy)
+    );
+    if (!isValid) return "One or more elements in dependency info array have an invalid structure.";
+    return true;
+};
+
+export const generateReadmeWithGemini = async (files: ProjectFile[], overview: string, projectName: string): Promise<string> => {
+    if (!ai) throw new Error("Gemini AI client is not initialized.");
+    
+    const MAX_CONTENT_LENGTH = 100000;
+    const filePaths = files.map(f => f.path).join('\n');
+    let contentSample = `Project Overview: ${overview}\n\n`;
+    const keyFiles = files.filter(f => f.path.includes('package.json') || f.path.includes('main.') || f.path.includes('index.') || f.path.includes('app.') || f.path.includes('src/App'));
+    for (const file of keyFiles) {
+        contentSample += `\n--- File: ${file.path} ---\n${file.content.substring(0, 2000)}\n`;
+    }
+    if (contentSample.length > MAX_CONTENT_LENGTH) {
+        contentSample = contentSample.substring(0, MAX_CONTENT_LENGTH) + "\n... (content truncated)";
+    }
+
+    const prompt = `
+You are a technical writer creating a README.md file for a software project.
+Project Name: ${projectName}
+File Structure:
+${filePaths}
+
+Key File Contents & Overview:
+${contentSample}
+
+Based on all the provided information, generate a comprehensive and well-formatted README.md file in Markdown format.
+
+The README should include the following sections:
+- A short, clear title for the project.
+- A one-paragraph summary of the project's purpose.
+- A "Key Features" section (as a bulleted list).
+- A "Technologies Used" section (as a bulleted list).
+- A "Getting Started" section with generic instructions for installation and running the project locally (e.g., \`npm install\`, \`npm run dev\`).
+
+Respond ONLY with the raw Markdown text for the README.md file. Do not include any other text, explanations, or code fences around the entire response.
+`;
+    try {
+        const response = await promiseWithTimeout<GenerateContentResponse>(
+            ai.models.generateContent({
+                model: "gemini-2.5-flash",
+                contents: prompt,
+                config: { temperature: 0.5 }
+            }),
+            API_TIMEOUT_MS
+        );
+        return response.text;
+    } catch (error) {
+        throw handleApiError(error, "Failed to generate README from AI.");
+    }
+};
+
+export const analyzeDependenciesWithGemini = async (packageJsonContent: string): Promise<DependencyAnalysis[]> => {
+    if (!ai) throw new Error("Gemini AI client is not initialized.");
+    
+    let dependencies: any = {};
+    try {
+        const parsed = JSON.parse(packageJsonContent);
+        dependencies = { ...parsed.dependencies, ...parsed.devDependencies };
+        if (Object.keys(dependencies).length === 0) {
+            return []; // No dependencies to analyze
+        }
+    } catch(e) {
+        throw new Error("Invalid package.json format.");
+    }
+
+    const prompt = `
+You are a software dependency analyst.
+The user has provided the dependencies from a package.json file. For each dependency, provide a concise, one-sentence explanation of its purpose in a typical web project.
+
+Respond ONLY with a valid JSON array of objects. Each object must have two keys: "name" (the package name) and "description" (the one-sentence explanation).
+
+Example format:
+[
+  { "name": "react", "description": "A JavaScript library for building user interfaces." },
+  { "name": "tailwindcss", "description": "A utility-first CSS framework for rapid UI development." }
+]
+
+Dependencies to analyze:
+${JSON.stringify(dependencies, null, 2)}
+
+${criticalJsonFormattingRules}
+`;
+    try {
+        const response = await promiseWithTimeout<GenerateContentResponse>(
+            ai.models.generateContent({
+                model: "gemini-2.5-flash",
+                contents: prompt,
+                config: { responseMimeType: "application/json", temperature: 0.1 }
+            }),
+            API_TIMEOUT_MS
+        );
+        return parseJsonFromAiResponse<DependencyAnalysis[]>(response.text, dependencyAnalysisFieldCheck);
+    } catch (error) {
+        throw handleApiError(error, "Failed to analyze dependencies from AI.");
+    }
+};
+
+export const getProjectDependenciesWithGemini = async (files: ProjectFile[]): Promise<DependencyInfo[]> => {
+    if (!ai) throw new Error("Gemini AI client is not initialized.");
+
+    const MAX_FILES_FOR_CONTEXT = 75;
+    const filesForContext = files.length > MAX_FILES_FOR_CONTEXT ? files.slice(0, MAX_FILES_FOR_CONTEXT) : files;
+
+    const fileContents = filesForContext.map(f => `
+---
+File: ${f.path}
+---
+${f.content.substring(0, 3000)}
+---
+`).join('\n\n');
+
+    const prompt = `
+You are a software architect analyzing project dependencies.
+Based on the provided file contents, identify the 5-7 most important modules/files that form the core architecture of this project.
+
+For each of these key modules, provide an analysis of its relationships with other files within the project. Your output MUST be a JSON array of objects.
+
+Each object in the array represents one key module and MUST have the following keys:
+- "modulePath": The full path of the key module file.
+- "description": A concise, one-sentence summary of this module's role in the project.
+- "imports": An array of strings, listing the file paths (within the project) that this module imports or requires.
+- "importedBy": An array of strings, listing the file paths (within the aproject) that import or require this module.
+
+Focus only on internal project dependencies (local file imports), not external libraries (e.g., 'react', 'express'). If a module has no internal imports or is not imported by any other file, use an empty array [].
+
+File Contents:
+${fileContents}
+
+${criticalJsonFormattingRules}
+
+Respond ONLY with the valid JSON array as described above.
+`;
+    try {
+        const response = await promiseWithTimeout<GenerateContentResponse>(
+            ai.models.generateContent({
+                model: "gemini-2.5-flash",
+                contents: prompt,
+                config: { responseMimeType: "application/json", temperature: 0.2 }
+            }),
+            API_TIMEOUT_MS
+        );
+        return parseJsonFromAiResponse<DependencyInfo[]>(response.text, dependencyInfoFieldCheck);
+    } catch (error) {
+        throw handleApiError(error, "Failed to generate architecture report from AI.");
+    }
+};
+
+export const askProjectFollowUpWithGemini = async (
+    latestUserQuestion: string, 
+    chatHistory: ChatMessage[],
+    projectOverview: string,
+    filePaths: string[]
+): Promise<string> => {
+    if (!ai) throw new Error("Gemini AI client is not initialized.");
+
+    const conversationHistoryString = chatHistory
+        .map(message => `${message.role === 'user' ? 'User' : 'AI'}: ${message.content}`)
+        .join('\n');
+    
+    const projectContext = `
+Project Overview: ${projectOverview}
+File Structure:
+${filePaths.join('\n')}
+    `;
+
+    const prompt = `
+You are an expert software architect acting as a project-wide conversational assistant.
+You have the context of an entire project, including its overview and file structure.
+
+Project Context:
+${projectContext}
+
+Conversation History:
+${conversationHistoryString}
+
+The user has a new question:
+User: "${latestUserQuestion}"
+
+Please provide a clear, concise, and helpful answer to the user's LATEST question.
+Use your knowledge of the project's structure to infer where code related to their question might be.
+You can reference specific file paths in your answer.
+Your answer should be plain text, suitable for direct display. Do not use JSON.
+`;
+
+    try {
+        const response = await promiseWithTimeout<GenerateContentResponse>(
+            ai.models.generateContent({
+                model: "gemini-2.5-flash",
+                contents: prompt,
+                config: { temperature: 0.6 }
+            }),
+            API_TIMEOUT_MS
+        );
+        return response.text;
+    } catch (error) {
+        throw handleApiError(error, "Failed to get an answer for your project-wide question.");
+    }
+};
+
+
+export const analyzeProjectWithGemini = async (
+    files: ProjectFile[],
+    projectName: string
+): Promise<ProjectAnalysis> => {
+    if (!ai) throw new Error("Gemini AI client is not initialized. Ensure API_KEY is set.");
+
+    const MAX_PATHS_LENGTH = 100000; // A safe limit for the file paths part of the prompt
+    const filePaths = files.map(f => f.path);
+    let filePathsString = filePaths.join('\n');
+    if (filePathsString.length > MAX_PATHS_LENGTH) {
+        filePathsString = filePathsString.substring(0, MAX_PATHS_LENGTH) + "\n... (file list truncated)";
+    }
+
+    const prompt = `
+You are an expert software architect. A user has uploaded a project named "${projectName}".
+Based on the file structure provided below, please provide a high-level analysis of the project.
+
+File Structure:
+\`\`\`
+${filePathsString}
+\`\`\`
+
+Provide your analysis ONLY as a valid JSON object with the following exact keys: "overview" and "fileBreakdown".
+
+- "overview": A single paragraph explaining the project's likely purpose, architecture, and technology stack based on the file paths.
+- "fileBreakdown": An array of objects, where each object represents a file from the list. Each object MUST have the following keys:
+  - "path": The full path of the file, copied exactly from the input list.
+  - "description": A concise, one-sentence description of the file's likely purpose within the project.
+
+${criticalJsonFormattingRules}
+
+Respond ONLY with the valid JSON object described above.
+`;
+
+    try {
+        const response = await promiseWithTimeout<GenerateContentResponse>(
+            ai.models.generateContent({
+                model: "gemini-2.5-flash",
+                contents: prompt,
+                config: { responseMimeType: "application/json", temperature: 0.3 }
+            }),
+            API_TIMEOUT_MS
+        );
+        return parseJsonFromAiResponse<ProjectAnalysis>(response.text, projectAnalysisFieldCheck);
+    } catch (error) {
+        throw handleApiError(error, "Failed to get project analysis from AI. The project might be too large or an API error occurred.");
+    }
+};
+
 const analysisResultFieldCheck = (parsed: any): true | string => {
-    if (typeof parsed !== 'object' || parsed === null) return "Parsed JSON is not an object.";
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return "Parsed JSON is not an object.";
     if (!parsed.topicExplanation) return "Missing 'topicExplanation' object";
     if (typeof parsed.topicExplanation.coreConcepts !== 'string') return "Field 'topicExplanation.coreConcepts' is not a string";
     
+    if (!Array.isArray(parsed.topicExplanation.blockByBlockBreakdown)) return "Field 'topicExplanation.blockByBlockBreakdown' is not an array";
+    if (parsed.topicExplanation.blockByBlockBreakdown.length > 0) {
+        const isValid = parsed.topicExplanation.blockByBlockBreakdown.every((item: any) => 
+            typeof item === 'object' && item !== null && typeof item.codeBlock === 'string' && typeof item.explanation === 'string'
+        );
+        if (!isValid) return "Elements in 'blockByBlockBreakdown' array do not have the required '{codeBlock: string, explanation: string}' structure.";
+    }
+
     if (!Array.isArray(parsed.topicExplanation.lineByLineBreakdown)) return "Field 'topicExplanation.lineByLineBreakdown' is not an array";
     if (parsed.topicExplanation.lineByLineBreakdown.length > 0) {
         const isValid = parsed.topicExplanation.lineByLineBreakdown.every((item: any) => 
@@ -146,18 +495,38 @@ const analysisResultFieldCheck = (parsed: any): true | string => {
 
     if (typeof parsed.topicExplanation.executionFlowAndDataTransformation !== 'string') return "Field 'topicExplanation.executionFlowAndDataTransformation' is not a string";
     
+    // New validation for visualExecutionFlow
+    if (!Array.isArray(parsed.topicExplanation.visualExecutionFlow)) return "Field 'topicExplanation.visualExecutionFlow' is not an array";
+    if (parsed.topicExplanation.visualExecutionFlow.length > 0) {
+        const isStepValid = (step: any): boolean => 
+            typeof step === 'object' && step !== null &&
+            (typeof step.lineNumber === 'number' || step.lineNumber === null) &&
+            typeof step.explanation === 'string' &&
+            typeof step.variablesState === 'object' && step.variablesState !== null;
+        if (!parsed.topicExplanation.visualExecutionFlow.every(isStepValid)) {
+            return "Elements in 'visualExecutionFlow' array do not have the required '{lineNumber: number|null, explanation: string, variablesState: object}' structure.";
+        }
+    }
+
     if (typeof parsed.exampleCode !== 'string') return "Field 'exampleCode' is not a string";
     if (typeof parsed.exampleCodeOutput !== 'string') return "Field 'exampleCodeOutput' is not a string";
     
-    if (typeof parsed.practiceSection !== 'object' || parsed.practiceSection === null) return "Missing 'practiceSection' object";
-    const practiceCheck = practiceMaterialFieldCheck(parsed.practiceSection);
-    if (practiceCheck !== true) return `Validation failed inside 'practiceSection': ${practiceCheck}`;
+    if (typeof parsed.practiceContext !== 'object' || parsed.practiceContext === null) return "Missing 'practiceContext' object";
+
+    if (typeof parsed.practiceContext.generatedQuestion !== 'object' || parsed.practiceContext.generatedQuestion === null) return "Missing 'practiceContext.generatedQuestion' object";
+    const generatedCheck = practiceMaterialFieldCheck(parsed.practiceContext.generatedQuestion);
+    if (generatedCheck !== true) return `Validation failed inside 'practiceContext.generatedQuestion': ${generatedCheck}`;
+
+    if (typeof parsed.practiceContext.userCodeAsPractice !== 'object' || parsed.practiceContext.userCodeAsPractice === null) return "Missing 'practiceContext.userCodeAsPractice' object";
+    const userCodeCheck = practiceMaterialFieldCheck(parsed.practiceContext.userCodeAsPractice);
+    if (userCodeCheck !== true) return `Validation failed inside 'practiceContext.userCodeAsPractice': ${userCodeCheck}`;
     
     return true;
 };
 
 const practiceMaterialFieldCheck = (parsed: any): true | string => {
-    if (typeof parsed !== 'object' || parsed === null) return "Parsed JSON is not an object.";
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return "Parsed JSON is not an object.";
+    if (typeof parsed.title !== 'string') return "Field 'title' is not a string";
     if (typeof parsed.questionText !== 'string') return "Field 'questionText' is not a string";
     
     if (!Array.isArray(parsed.normalInstructionsLevel1)) return "Field 'normalInstructionsLevel1' is not an array";
@@ -173,7 +542,7 @@ const practiceMaterialFieldCheck = (parsed: any): true | string => {
 };
 
 const userSolutionAnalysisFieldCheck = (parsed: any): true | string => {
-    if (typeof parsed !== 'object' || parsed === null) return "Parsed JSON is not an object.";
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return "Parsed JSON is not an object.";
     if (typeof parsed.predictedOutput !== 'string') return "Field 'predictedOutput' is not a string";
     if (typeof parsed.feedback !== 'string') return "Field 'feedback' is not a string";
     
@@ -191,7 +560,7 @@ const userSolutionAnalysisFieldCheck = (parsed: any): true | string => {
 };
 
 const moreInstructionsResponseFieldCheck = (parsed: any): true | string => {
-    if (typeof parsed !== 'object' || parsed === null) return "Parsed JSON is not an object.";
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return "Parsed JSON is not an object.";
     if (!Array.isArray(parsed.newInstructionSteps)) return "Field 'newInstructionSteps' is not an array";
     if (parsed.newInstructionSteps.some((step: any) => typeof step !== 'string')) return "Not all elements in 'newInstructionSteps' are strings";
     if (typeof parsed.hasMoreLevels !== 'boolean') return "Field 'hasMoreLevels' is not a boolean";
@@ -200,9 +569,29 @@ const moreInstructionsResponseFieldCheck = (parsed: any): true | string => {
 
 
 const exampleCodeDataFieldCheck = (parsed: any): true | string => {
-    if (typeof parsed !== 'object' || parsed === null) return "Parsed JSON is not an object.";
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return "Parsed JSON is not an object.";
     if (typeof parsed.exampleCode !== 'string') return "Field 'exampleCode' is not a string";
     if (typeof parsed.exampleCodeOutput !== 'string') return "Field 'exampleCodeOutput' is not a string";
+    return true;
+};
+
+const debugResultFieldCheck = (parsed: any): true | string => {
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return "Parsed JSON is not an object.";
+    if (typeof parsed.summary !== 'string') return "Field 'summary' is not a string";
+    if (typeof parsed.correctedCode !== 'string') return "Field 'correctedCode' is not a string";
+    
+    if (!Array.isArray(parsed.errorAnalysis)) return "Field 'errorAnalysis' is not an array";
+    const validErrorTypes = ['Syntax', 'Logic', 'Best Practice', 'Other'];
+    const areErrorsValid = parsed.errorAnalysis.every((item: any) => 
+        typeof item === 'object' && item !== null &&
+        (typeof item.errorLine === 'number' || item.errorLine === null || item.errorLine === undefined) &&
+        typeof item.erroneousCode === 'string' &&
+        typeof item.explanation === 'string' &&
+        typeof item.suggestedFix === 'string' &&
+        validErrorTypes.includes(item.errorType)
+    );
+    if (!areErrorsValid) return "One or more elements in 'errorAnalysis' array have an invalid structure or 'errorType'.";
+
     return true;
 };
 
@@ -232,35 +621,37 @@ const getPracticeQuestionDifficultyGuidance = (languageName: string, difficulty:
     }
 };
 
-const handleApiError = (error: unknown, defaultMessage: string): Error => {
-    console.error("Error calling Gemini API:", error);
-    if (error instanceof Error) {
-        if (error.message.includes("API key not valid") || error.message.includes("API_KEY_INVALID")) {
-            return new Error("Invalid API Key. Check configuration.");
-        }
-        if (error.message.toLowerCase().includes("quota")) {
-            return new Error("API quota exceeded. Try again later.");
-        }
-        // Specific errors from parseJsonFromAiResponse or promiseWithTimeout should be re-thrown
-        if (error.message.startsWith("AI response validation failed:") || error.message.startsWith("AI returned malformed JSON.") || error.message.startsWith("AI request timed out")) {
-            return error;
-        }
-    }
-    return new Error(defaultMessage);
-};
+const getPracticeMaterialDefinition = (isForUserCode: boolean = false, languageName: string, difficultyGuidance: string) => {
+    const titleInstruction = `
+- "title": A descriptive, context-rich title summarizing the problem's real-world goal. **Title Rules**: AVOID literal commands (e.g., "Check if Number is Positive"). INSTEAD, use an engaging, purpose-driven title (e.g., "Validate User Input Number"). For finding a price range, AVOID "Find Price Range Difference"; INSTEAD, use "Calculate Market Price Spread" or "Analyze Stock Price Volatility".
+`.trim();
 
-const criticalJsonFormattingRules = `
-CRITICAL JSON FORMATTING RULES:
-- The entire response MUST be a single, valid JSON object.
-- All keys and string values must be enclosed in double quotes (").
-- All special characters inside string values MUST be correctly escaped for JSON.
-  - Double quotes (") must be escaped as \\". For example, a code snippet like \`print("hello")\` MUST be represented in a JSON string as \`"print(\\"hello\\")"\`. This is CRITICAL for fields containing code.
-  - Backslashes (\\) must be escaped as \\\\. For example, a Windows path \`"C:\\Users\\Test"\` MUST be represented as \`"C:\\\\Users\\\\Test"\`.
-  - Newlines must be escaped as \\n.
-- No trailing commas in objects or arrays.
-- All keys within a single JSON object must be unique.
-Adhere to these rules strictly to prevent JSON parsing errors.
+    const baseDefinition = `
+- "questionText": [QUESTION_TEXT_INSTRUCTION]
+- "normalInstructionsLevel1": An array of strings with 3-5 high-level, conceptual steps (Level 1) for solving the task. DO NOT give away the full solution or specific implementation details in these initial steps.
+- "lineByLineInstructions": An array of strings. Each string is a granular step guiding the user to build the solution line-by-line WITHOUT showing the code. For example: "1. Declare a function 'main' that returns an integer.", "2. Inside main, use 'std::cout' to print 'Hello World'.".
+- "solutionCode": [SOLUTION_CODE_INSTRUCTION]
+- "solutionOutput": [SOLUTION_OUTPUT_INSTRUCTION]
 `;
+
+    if (isForUserCode) {
+        return `
+- "title": "Reconstruct Your Code"
+${baseDefinition
+    .replace("[QUESTION_TEXT_INSTRUCTION]", "A directive for the user, such as: \"Now, try to reconstruct the code you originally provided, using the instructions below as a guide.\"")
+    .replace("[SOLUTION_CODE_INSTRUCTION]", `The user's original code, copied EXACTLY.`)
+    .replace("[SOLUTION_OUTPUT_INSTRUCTION]", `The predicted output of the user's original code.`)}
+`;
+    } else {
+         return `
+${titleInstruction}
+${baseDefinition
+    .replace("[QUESTION_TEXT_INSTRUCTION]", `${difficultyGuidance} This should be a new, related practice question for the user to solve.`)
+    .replace("[SOLUTION_CODE_INSTRUCTION]", `The complete, runnable code solution for this new, generated "questionText".`)
+    .replace("[SOLUTION_OUTPUT_INSTRUCTION]", `The exact output of the generated "solutionCode".`)}
+`;
+    }
+};
 
 export const analyzeCodeWithGemini = async (
     codeContent: string,
@@ -274,15 +665,26 @@ export const analyzeCodeWithGemini = async (
     let prompt: string;
     let fieldCheck: (parsed: any) => true | string;
 
-    const practiceDifficultyGuidance = getPracticeQuestionDifficultyGuidance(isDetectingLanguage ? 'the detected language' : LanguageDisplayNames[language], practiceDifficulty);
+    const languageNameForPrompt = isDetectingLanguage ? 'the detected language' : LanguageDisplayNames[language];
+    const practiceDifficultyGuidance = getPracticeQuestionDifficultyGuidance(languageNameForPrompt, practiceDifficulty);
 
-    const practiceSectionInstructions = `
-Details for the "practiceSection" top-level key. It MUST be an object with the following keys:
-- "questionText": ${practiceDifficultyGuidance}
-- "normalInstructionsLevel1": An array of strings with 3-5 high-level, conceptual steps (Level 1). DO NOT give away the full solution or specific implementation details in these initial steps.
-- "lineByLineInstructions": An array of strings. Each string is a granular step guiding the user to build the solution line-by-line WITHOUT showing the code. For example: "1. Declare a function 'main' that returns an integer.", "2. Inside main, use 'std::cout' to print 'Hello World'.".
-- "solutionCode": The complete, runnable code solution for the "questionText".
-- "solutionOutput": The exact output of the "solutionCode".
+    const topicExplanationInstructions = `
+- "topicExplanation": A JSON object analyzing the user's code, structured with the exact keys: "coreConcepts", "blockByBlockBreakdown", "lineByLineBreakdown", "executionFlowAndDataTransformation", and "visualExecutionFlow".
+  - "coreConcepts": A comprehensive explanation of the main concepts in the user's code.
+  - "blockByBlockBreakdown": An array of objects. Each object MUST have a "codeBlock" key (a string containing a logical part of the user's code) and an "explanation" key (a string explaining that block).
+  - "lineByLineBreakdown": An array of objects. Each object MUST have a "code" key (a single line or small group of related lines from the user's code) and an "explanation" key. Do NOT explain comments or blank lines.
+  - "executionFlowAndDataTransformation": A text-based step-by-step explanation of how the code executes from start to finish.
+  - "visualExecutionFlow": An array of objects for a visual player. Each object MUST have keys: "lineNumber" (the 1-indexed line number being executed, or null for setup/end), "explanation" (A clear, user-friendly explanation of what is happening at this line of code. It MUST NOT be pseudo-code, but a descriptive sentence in plain language explaining the action and its purpose. For example: "The loop starts, initializing the counter 'i' to 0."), and "variablesState" (a JSON object showing the values of key variables at this step). This should trace the program from start to finish. If no variables exist or the state is unchanged, use an empty object {}.
+`;
+
+    const practiceContextInstructions = `
+Details for the "practiceContext" top-level key. It MUST be an object with TWO keys: "generatedQuestion" and "userCodeAsPractice".
+
+1. "generatedQuestion" object definition:
+${getPracticeMaterialDefinition(false, languageNameForPrompt, practiceDifficultyGuidance)}
+
+2. "userCodeAsPractice" object definition:
+${getPracticeMaterialDefinition(true, languageNameForPrompt, '')}
 `;
 
     if (isDetectingLanguage) {
@@ -296,18 +698,15 @@ You are an expert programming tutor.
 First, identify the programming language of the following code snippet.
 Then, analyze the code according to the identified language.
 
-Provide your analysis in a JSON format. The top-level JSON object must contain the following exact keys: "detectedLanguage", "topicExplanation", "exampleCode", "exampleCodeOutput", "practiceSection".
+Provide your analysis in a JSON format. The top-level JSON object must contain the following exact keys: "detectedLanguage", "topicExplanation", "exampleCode", "exampleCodeOutput", "practiceContext".
 
 - "detectedLanguage": A string representing the identified programming language. The value MUST be one of the following: ${validLanguages}.
-- "topicExplanation": A JSON object with keys "coreConcepts", "lineByLineBreakdown", and "executionFlowAndDataTransformation".
-  - "coreConcepts": A comprehensive explanation of the main concepts in the code.
-  - "lineByLineBreakdown": An array of objects, each with "code" and "explanation" keys, breaking down the user's code. Do NOT explain comments.
-  - "executionFlowAndDataTransformation": An explanation of how the code executes and transforms data.
-- "exampleCode": A STRING containing a '${initialDifficulty}' difficulty code example in the DETECTED language, illustrating the core concepts. This value MUST be only pure, raw, runnable code.
+${topicExplanationInstructions}
+- "exampleCode": A STRING containing a '${initialDifficulty}' difficulty code example in the DETECTED language, illustrating the core concepts. This must be pure, runnable code.
 - "exampleCodeOutput": A STRING representing the exact output of "exampleCode".
-- "practiceSection": An object structured as described below.
+- "practiceContext": An object structured as described below.
 
-${practiceSectionInstructions}
+${practiceContextInstructions}
 ${criticalJsonFormattingRules}
 
 User's Code Snippet to analyze:
@@ -318,6 +717,7 @@ ${codeContent}
 Respond ONLY with the valid JSON object described above.
 `;
         fieldCheck = (parsed: any): true | string => {
+            if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return "Parsed JSON is not an object.";
             if (typeof parsed.detectedLanguage !== 'string') return "Field 'detectedLanguage' is not a string";
             const langEnum = displayNameToLangEnum[parsed.detectedLanguage.toLowerCase()];
             if (!langEnum) return `Detected language '${parsed.detectedLanguage}' is not supported or recognized.`;
@@ -331,32 +731,14 @@ Respond ONLY with the valid JSON object described above.
 You are an expert programming tutor. Analyze the following ${languageName} code.
 The user's primary goal is to understand the main programming concepts demonstrated in THEIR SUBMITTED CODE.
 
-Provide your analysis in a JSON format. The top-level JSON object must contain the following exact keys: "topicExplanation", "exampleCode", "exampleCodeOutput", "practiceSection".
+Provide your analysis in a JSON format. The top-level JSON object must contain the following exact keys: "topicExplanation", "exampleCode", "exampleCodeOutput", "practiceContext".
 
-The value for the "topicExplanation" key MUST be a JSON object structured as follows:
-{
-    "coreConcepts": "[Provide a comprehensive and detailed explanation of THE MAIN PROGRAMMING CONCEPT(S) DEMONSTRATED IN THE USER'S UPLOADED CODE. Begin with a concise, high-level overview. The primary focus must be on the user's code functionality, its structure, and its logic. This should be tailored to the user's code, easy for a learner to understand, cover key aspects, and can be multiple paragraphs if necessary. Ensure this is a single JSON string value.]",
-    "lineByLineBreakdown": [
-        {
-            "code": "/* A single line or small logical block of the user's code goes here */",
-            "explanation": "/* A concise explanation for the code line/block above. For simple lines, this should be 1-2 sentences. For more complex lines, it can be longer. Do NOT explain comments. */"
-        }
-    ],
-    "executionFlowAndDataTransformation": "[Explain how the user's code executes step-by-step. Detail the flow of control, how variables change, and how data is transformed throughout the program's lifecycle. Ensure this is a single JSON string value.]"
-}
+${topicExplanationInstructions}
+- "exampleCode": A STRING containing a '${initialDifficulty}' difficulty ${languageName} code example illustrating the core concepts. ${difficultyGuidance} This must be pure, runnable code.
+- "exampleCodeOutput": A STRING representing the exact, expected output of "exampleCode".
+- "practiceContext": An object structured as described below.
 
-Specific rules for "lineByLineBreakdown":
-- It MUST be an array of objects.
-- Each object MUST have two string keys: 'code' and 'explanation'.
-- The array must sequentially cover the entire user's code.
-- Explanations must be concise but adapt in length based on code complexity.
-- CRITICALLY IMPORTANT: Your explanation must NOT mention, reference, or explain any comments present in the code (e.g., lines starting with '#'). Focus exclusively on what the executable code does.
-
-The "exampleCode" and "exampleCodeOutput" keys MUST be direct, top-level properties of the main JSON object:
-- "exampleCode": THIS MUST BE A STRING containing the '${initialDifficulty}' difficulty ${languageName} code example that clearly illustrates THE CORE CONCEPT(S) explained in "coreConcepts". This example must be different from the user's input code and should be ready to compile/run. ${difficultyGuidance} The value MUST be only pure, raw, runnable ${languageName} code.
-- "exampleCodeOutput": THIS MUST BE A STRING representing the exact, expected output if "exampleCode" were executed. If no visible output, use "[No direct output produced by this example]".
-
-${practiceSectionInstructions}
+${practiceContextInstructions}
 ${criticalJsonFormattingRules}
 
 User's ${languageName} Code:
@@ -372,7 +754,7 @@ Respond ONLY with the valid JSON object described above.
     try {
         const response = await promiseWithTimeout<GenerateContentResponse>(
             ai.models.generateContent({
-                model: "gemini-2.5-flash-preview-04-17",
+                model: "gemini-2.5-flash",
                 contents: prompt,
                 config: { responseMimeType: "application/json", temperature: 0.4 }
             }),
@@ -404,16 +786,32 @@ export const analyzeConceptWithGemini = async (
     if (language === SupportedLanguage.UNKNOWN) throw new Error("Cannot analyze a concept for an unknown language context.");
 
     const languageName = LanguageDisplayNames[language];
-    const difficultyGuidance = getDifficultyGuidance(languageName, initialDifficulty);
+    const exampleDifficultyGuidance = getDifficultyGuidance(languageName, initialDifficulty);
     const practiceDifficultyGuidance = getPracticeQuestionDifficultyGuidance(languageName, practiceDifficulty);
 
-    const practiceSectionInstructions = `
-Details for the "practiceSection" top-level key. It MUST be an object with the following keys:
-- "questionText": ${practiceDifficultyGuidance}
-- "normalInstructionsLevel1": An array of strings with 3-5 high-level, conceptual steps (Level 1). DO NOT give away the full solution or specific implementation details in these initial steps.
-- "lineByLineInstructions": An array of strings. Each string is a granular step guiding the user to build the solution line-by-line WITHOUT showing the code. For example: "1. Declare a function 'main' that returns an integer.", "2. Inside main, use 'std::cout' to print 'Hello World'.".
-- "solutionCode": The complete, runnable code solution for the "questionText".
-- "solutionOutput": The exact output of the "solutionCode".
+    const topicExplanationForConceptInstructions = `
+- "topicExplanation": A JSON object explaining the concept in ${languageName}, with the following exact keys: "coreConcepts", "blockByBlockBreakdown", "lineByLineBreakdown", "executionFlowAndDataTransformation", and "visualExecutionFlow".
+  - "coreConcepts": A comprehensive explanation of the core aspects of "${concept}".
+  - "blockByBlockBreakdown": An array of objects demonstrating the concept's generic structure. Each object MUST have a "codeBlock" key (a generic code block showing the concept) and an "explanation" key.
+  - "lineByLineBreakdown": An array of objects providing a generic line-by-line example. Each object MUST have a "code" key and an "explanation" key.
+  - "executionFlowAndDataTransformation": A text-based explanation of how the concept typically controls program flow.
+  - "visualExecutionFlow": An array of objects tracing the execution of the main "exampleCode" you provide below. Each object MUST have keys: "lineNumber" (1-indexed line number from "exampleCode"), "explanation" (A clear, user-friendly explanation of what is happening at this line of code. It MUST NOT be pseudo-code, but a descriptive sentence in plain language explaining the action and its purpose. For example: "The loop starts, initializing the counter 'i' to 0."), and "variablesState" (a JSON object showing key variable values).
+`;
+
+    const practiceContextInstructions = `
+Details for the "practiceContext" top-level key. It MUST be an object with TWO keys: "generatedQuestion" and "userCodeAsPractice".
+
+1. "generatedQuestion" object definition:
+${getPracticeMaterialDefinition(false, languageName, practiceDifficultyGuidance)}
+
+2. "userCodeAsPractice" object definition:
+This object should provide a challenge for the user to reconstruct the main example code you provide.
+- "title": "Reconstruct the Example"
+- "questionText": "Your goal is to reconstruct the 'exampleCode' provided above. Use the instructions below as a guide."
+- "normalInstructionsLevel1": An array of strings with 3-5 high-level steps for reconstructing the 'exampleCode'.
+- "lineByLineInstructions": An array of strings with granular steps for building the 'exampleCode'.
+- "solutionCode": The code from the "exampleCode" key, copied EXACTLY here.
+- "solutionOutput": The output from the "exampleCodeOutput" key, copied EXACTLY here.
 `;
 
     const prompt = `
@@ -421,31 +819,14 @@ You are an expert programming tutor. A user wants to understand a specific progr
 The programming language context is ${languageName}.
 The concept the user wants to understand is: "${concept}"
 
-Provide your analysis in a JSON format. The top-level JSON object must contain the following exact keys: "topicExplanation", "exampleCode", "exampleCodeOutput", "practiceSection".
+Provide your analysis in a JSON format. The top-level JSON object must contain the following exact keys: "topicExplanation", "exampleCode", "exampleCodeOutput", "practiceContext".
 
-The value for the "topicExplanation" key MUST be a JSON object structured as follows:
-{
-    "coreConcepts": "[Provide a comprehensive and detailed explanation of the core aspects of \\"${concept}\\" specifically within the context of the ${languageName} language. Begin with a concise, high-level overview. This explanation should be thorough, cover key aspects, potential nuances, and be easy for a learner to understand. Ensure this is a single JSON string value.]",
-    "lineByLineBreakdown": [
-        {
-            "code": "/* A generic code line/block illustrating the concept goes here */",
-            "explanation": "/* A concise explanation for the generic code line/block above. Explain each part's role in the context of \\"${concept}\\". Adapt explanation length to complexity. If not applicable, the array can be empty or contain a single object with an explanation that this is not applicable. */"
-        }
-    ],
-    "executionFlowAndDataTransformation": "[Explain how a program utilizing this concept (\\"${concept}\\") would typically execute or how the concept manifests in execution. Describe how data is typically transformed or managed when this concept is applied. Ensure this is a single JSON string value.]"
-}
+${topicExplanationForConceptInstructions}
+- "exampleCode": A STRING containing a '${initialDifficulty}' difficulty ${languageName} code example illustrating "${concept}". ${exampleDifficultyGuidance} This must be pure, runnable code.
+- "exampleCodeOutput": A STRING representing the exact output of "exampleCode".
+- "practiceContext": An object structured as described below.
 
-Specific rules for "lineByLineBreakdown":
-- It MUST be an array of objects.
-- Each object MUST have two string keys: 'code' and 'explanation'.
-- If the concept involves a typical code structure (e.g., a for loop, a class definition), provide a breakdown of such a generic structure.
-- If not applicable, you can provide an empty array [] or state its non-applicability in a single entry's explanation.
-
-The "exampleCode" and "exampleCodeOutput" keys MUST be direct, top-level properties of the main JSON object:
-- "exampleCode": THIS MUST BE A STRING containing the '${initialDifficulty}' difficulty ${languageName} code example that clearly illustrates the core idea of THE USER'S CONCEPT ("${concept}"). This example must be ready to compile/run. ${difficultyGuidance} The value MUST be only pure, raw, runnable ${languageName} code.
-- "exampleCodeOutput": THIS MUST BE A STRING representing the exact, expected output if "exampleCode" were executed. If no visible output, use "[No direct output produced by this example definition]".
-
-${practiceSectionInstructions}
+${practiceContextInstructions}
 ${criticalJsonFormattingRules}
 
 Respond ONLY with the valid JSON object described above.
@@ -454,14 +835,13 @@ Respond ONLY with the valid JSON object described above.
     try {
         const response = await promiseWithTimeout<GenerateContentResponse>(
             ai.models.generateContent({
-                model: "gemini-2.5-flash-preview-04-17", // Ensure correct model
+                model: "gemini-2.5-flash",
                 contents: prompt,
-                config: { responseMimeType: "application/json", temperature: 0.45 } // Temperature for concept explanation
+                config: { responseMimeType: "application/json", temperature: 0.45 }
             }),
             API_TIMEOUT_MS
         );
-        const parsedResult = parseJsonFromAiResponse<AnalysisResult>(response.text, analysisResultFieldCheck);
-        return parsedResult;
+        return parseJsonFromAiResponse<AnalysisResult>(response.text, analysisResultFieldCheck);
     } catch (error) {
         throw handleApiError(error, "Failed to get concept analysis from AI. Check network/API key, then try again.");
     }
@@ -518,7 +898,7 @@ Respond ONLY with the valid JSON object described above.
     try {
         const response = await promiseWithTimeout<GenerateContentResponse>(
             ai.models.generateContent({
-                model: "gemini-2.5-flash-preview-04-17",
+                model: "gemini-2.5-flash",
                 contents: prompt,
                 config: { responseMimeType: "application/json", temperature: 0.35 } // Lower temp for more deterministic instructions
             }),
@@ -587,7 +967,7 @@ Respond ONLY with the valid JSON object described above.
     try {
         const response = await promiseWithTimeout<GenerateContentResponse>(
             ai.models.generateContent({
-                model: "gemini-2.5-flash-preview-04-17", // Ensure correct model
+                model: "gemini-2.5-flash", // Ensure correct model
                 contents: prompt,
                 config: { responseMimeType: "application/json", temperature: 0.3 } // Lower temp for more focused feedback
             }),
@@ -614,7 +994,7 @@ You are an expert programming tutor.
 Core Concept: "${topicCoreConcepts}". Language: ${languageName}. Requested difficulty: "${difficulty}".
 Guidance for "${difficulty}": ${difficultyGuidanceText}
 Provide ONLY a JSON object with keys: "exampleCode", "exampleCodeOutput".
-- "exampleCode": Self-contained ${languageName} code for "${topicCoreConcepts}" at "${difficulty}" level. MUST be only pure, raw, runnable code. Ensure all special characters in string literals within the code (like backslashes) are correctly escaped for ${languageName}.
+- "exampleCode": Self-contained ${languageName} code for "${topicCoreConcepts}" at "${difficulty}" level. This value MUST be a raw JSON string, NOT a JSON object. The string must contain only pure, raw, runnable code. Ensure all special characters in string literals within the code (like backslashes) are correctly escaped for ${languageName}.
 - "exampleCodeOutput": Exact expected output. If none, use "[No direct output produced by this example]".
 
 ${criticalJsonFormattingRules}
@@ -624,7 +1004,7 @@ Respond ONLY with the valid JSON object described above.
     try {
         const response = await promiseWithTimeout<GenerateContentResponse>(
             ai.models.generateContent({
-                model: "gemini-2.5-flash-preview-04-17", // Ensure correct model
+                model: "gemini-2.5-flash", // Ensure correct model
                 contents: prompt,
                 config: { responseMimeType: "application/json", temperature: 0.6 } // Slightly higher temp for more varied examples
             }),
@@ -649,6 +1029,7 @@ export const getPracticeQuestionByDifficulty = async (
     
     const practiceSectionDefinition = `
 The response must be a JSON object representing the practice material, with the following keys:
+- "title": A descriptive, context-rich title summarizing the problem's real-world goal. **Title Rules**: AVOID literal commands (e.g., "Check if Number is Positive"). INSTEAD, use an engaging, purpose-driven title (e.g., "Validate User Input Number"). For finding a price range, AVOID "Find Price Range Difference"; INSTEAD, use "Calculate Market Price Spread" or "Analyze Stock Price Volatility".
 - "questionText": A practice question related to the core concept.
 - "normalInstructionsLevel1": An array of strings with 3-5 high-level, conceptual steps (Level 1).
 - "lineByLineInstructions": An array of strings. Each string is a granular step guiding the user to build the solution line-by-line WITHOUT showing the code.
@@ -678,7 +1059,7 @@ Respond ONLY with the valid JSON object described above.
     try {
         const response = await promiseWithTimeout<GenerateContentResponse>(
             ai.models.generateContent({
-                model: "gemini-2.5-flash-preview-04-17",
+                model: "gemini-2.5-flash",
                 contents: prompt,
                 config: { responseMimeType: "application/json", temperature: 0.5 }
             }),
@@ -690,49 +1071,58 @@ Respond ONLY with the valid JSON object described above.
     }
 };
 
-// New function to handle follow-up questions from the user
+// Updated function to handle multi-turn conversational chat
 export const askFollowUpQuestionWithGemini = async (
-    userQuestion: string, 
-    fullExplanationContext: string, // Concatenated coreConcepts, lineByLine, executionFlow
+    latestUserQuestion: string, 
+    chatHistory: ChatMessage[],
+    fullExplanationContext: string,
     language: SupportedLanguage,
-    originalInputContext: string, // The original code or concept string user provided
-    inputType: 'code' | 'concept' // To tailor the context slightly
+    originalInputContext: string,
+    inputType: 'code' | 'concept'
 ): Promise<string> => {
     if (!ai) throw new Error("Gemini AI client is not initialized. Ensure API_KEY is set.");
     
     const languageName = LanguageDisplayNames[language] || "the specified language";
     const contextType = inputType === 'code' ? "the user's code snippet" : "the user's concept";
 
+    // Build the conversation history string for the prompt
+    const conversationHistoryString = chatHistory
+        .map(message => `${message.role === 'user' ? 'User' : 'AI'}: ${message.content}`)
+        .join('\n');
+
     const prompt = `
-You are an expert programming tutor acting as a helpful AI assistant.
+You are an expert programming tutor continuing a session with a student.
 The user is asking a follow-up question related to a topic you previously explained.
 
-Context:
+Here is the full context of the current session:
 - Programming Language: ${languageName}
 - Original Input Type: ${contextType}
-- Original User Input: 
+- Original User Input:
   \`\`\`
   ${originalInputContext}
   \`\`\`
-- Your Previous Explanation (covering core concepts, line-by-line breakdown, and execution flow): 
+- Your Previous Full Explanation (covering core concepts, line-by-line breakdown, and execution flow): 
   """
   ${fullExplanationContext}
   """
 
-User's Follow-up Question: "${userQuestion}"
+Here is the conversation so far:
+${conversationHistoryString}
 
-Please answer the user's follow-up question directly, clearly, and comprehensively. 
-Focus specifically on their question while keeping the provided context (original input, your prior explanation) in mind.
+Now, the user has sent a new message:
+User: "${latestUserQuestion}"
+
+Please provide a clear, concise, and helpful answer to the user's LATEST message, keeping all of the above context (the initial analysis AND the entire conversation history) in mind.
+Answer ONLY the new message.
 Your answer should be plain text, suitable for direct display. Do not use JSON.
 Be concise but thorough. If the question is ambiguous, try to provide the most helpful interpretation.
-Format your answer with appropriate line breaks for readability. Use markdown for simple formatting like **bold** or *italics* if it enhances clarity, but avoid complex markdown like tables or code blocks unless absolutely necessary for the answer.
-Ensure that any special characters like backslashes are appropriately represented for plain text display (e.g., a literal backslash should just be a backslash).
+Format your answer with appropriate line breaks for readability. Use markdown for simple formatting like **bold** or *italics* if it enhances clarity, but avoid complex markdown.
 `;
 
     try {
         const response = await promiseWithTimeout<GenerateContentResponse>(
             ai.models.generateContent({
-                model: "gemini-2.5-flash-preview-04-17",
+                model: "gemini-2.5-flash",
                 contents: prompt,
                 config: { temperature: 0.55 } // Moderate temperature for helpful, creative answers
             }),
@@ -741,5 +1131,135 @@ Ensure that any special characters like backslashes are appropriately represente
         return response.text; // Return plain text answer
     } catch (error) {
         throw handleApiError(error, "Failed to get an answer from AI for your follow-up question. Please try again.");
+    }
+};
+
+export const executeCodeWithGemini = async (
+    code: string,
+    language: SupportedLanguage
+): Promise<string> => {
+    if (!ai) {
+        throw new Error("Gemini AI client is not initialized. Check API_KEY configuration.");
+    }
+    if (language === SupportedLanguage.UNKNOWN) {
+        throw new Error("Cannot execute code for an unknown language.");
+    }
+
+    const languageName = LanguageDisplayNames[language];
+
+    const prompt = `
+You are a sandboxed code execution environment.
+Your task is to execute the provided ${languageName} code and return ONLY the standard output (stdout).
+
+- If the code executes successfully and produces output, return ONLY that output.
+- If the code executes successfully but produces NO output, return a clear message like "[No output produced]".
+- If the code contains syntax errors or would cause a runtime error, return ONLY the error message that the language's compiler or interpreter would produce.
+- Do not add any of your own explanations, commentary, or formatting like backticks. Your response should be the raw, direct result of the execution attempt.
+
+Code to execute:
+\`\`\`${language}
+${code}
+\`\`\`
+`;
+
+    try {
+        const response = await promiseWithTimeout<GenerateContentResponse>(
+            ai.models.generateContent({
+                model: "gemini-2.5-flash",
+                contents: prompt,
+                config: {
+                    temperature: 0.0, // We want deterministic output
+                }
+            }),
+            API_TIMEOUT_MS
+        );
+        
+        return response.text;
+
+    } catch (error) {
+        throw handleApiError(error, "Failed to get execution result from AI. Please try again.");
+    }
+};
+
+export const debugCodeWithGemini = async (
+    brokenCode: string,
+    language: SupportedLanguage
+): Promise<DebugResult> => {
+    if (!ai) throw new Error("Gemini AI client is not initialized. Ensure API_KEY is set.");
+
+    const isDetectingLanguage = language === SupportedLanguage.UNKNOWN;
+    const languageName = isDetectingLanguage ? 'the detected programming language' : LanguageDisplayNames[language];
+
+    const validLanguages = Object.values(LanguageDisplayNames)
+        .filter(name => name !== LanguageDisplayNames.unknown)
+        .map(name => `"${name}"`)
+        .join(', ');
+
+    const languageDetectionInstruction = isDetectingLanguage 
+        ? `- "detectedLanguage": A string representing the identified language. It MUST be one of: ${validLanguages}.`
+        : '';
+    const topLevelKeys = isDetectingLanguage ? `"detectedLanguage", "summary", "errorAnalysis", "correctedCode"` : `"summary", "errorAnalysis", "correctedCode"`;
+
+
+    const prompt = `
+You are an expert code debugger. A user has submitted a piece of code with errors.
+Your task is to identify all syntax and logical errors, explain them clearly, and provide the fully corrected code.
+${isDetectingLanguage ? 'First, you MUST detect the programming language of the code.' : `The programming language is ${languageName}.`}
+
+User's code to debug:
+\`\`\`
+${brokenCode}
+\`\`\`
+
+Provide your response ONLY as a valid JSON object with the following exact keys: ${topLevelKeys}.
+
+${languageDetectionInstruction}
+- "summary": A brief, one-paragraph summary of the main issues found in the code (e.g., "The code has a syntax error due to a missing semicolon and a logical error where the loop condition is incorrect, causing it to terminate prematurely.").
+- "errorAnalysis": An array of JSON objects, where each object represents a single identified error. Each object MUST have the following keys:
+  - "errorLine": An integer representing the 1-indexed line number where the error occurs. Can be null if the error is general.
+  - "erroneousCode": A string containing the exact line(s) of code that are incorrect.
+  - "errorType": A string that MUST be one of: "Syntax", "Logic", "Best Practice", "Other".
+  - "explanation": A clear, beginner-friendly explanation of why this is an error.
+  - "suggestedFix": A string containing the corrected version of the code line(s).
+- "correctedCode": A string containing the complete, runnable version of the user's code with all errors fixed.
+
+${criticalJsonFormattingRules}
+
+Respond ONLY with the valid JSON object described above.
+`;
+    
+    const fieldCheck = (parsed: any): true | string => {
+        if (isDetectingLanguage) {
+            if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return "Parsed JSON is not an object.";
+            if (typeof parsed.detectedLanguage !== 'string') return "Field 'detectedLanguage' is not a string";
+            const langEnum = displayNameToLangEnum[parsed.detectedLanguage.toLowerCase()];
+            if (!langEnum) return `Detected language '${parsed.detectedLanguage}' is not supported or recognized.`;
+        }
+        return debugResultFieldCheck(parsed);
+    };
+
+    try {
+        const response = await promiseWithTimeout<GenerateContentResponse>(
+            ai.models.generateContent({
+                model: "gemini-2.5-flash",
+                contents: prompt,
+                config: { responseMimeType: "application/json", temperature: 0.2 } // Low temp for factual debugging
+            }),
+            API_TIMEOUT_MS
+        );
+        const parsedResult = parseJsonFromAiResponse<DebugResult>(response.text, fieldCheck);
+        
+        if (isDetectingLanguage && (parsedResult as any).detectedLanguage) {
+             const langStr = ((parsedResult as any).detectedLanguage as string).toLowerCase();
+             const detectedEnum = displayNameToLangEnum[langStr] || SupportedLanguage.UNKNOWN;
+             if (detectedEnum === SupportedLanguage.UNKNOWN) {
+                 console.warn(`AI returned an unmappable language for debugging: '${langStr}'.`);
+             }
+             parsedResult.detectedLanguage = detectedEnum;
+        }
+        return parsedResult;
+
+    } catch (error) {
+        throw handleApiError(error, "Failed to get debugging analysis from AI. Please try again.");
     }
 };

@@ -5,22 +5,24 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>CodeTutor AI - Dashboard</title>
-    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Lexend:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries,typography"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Lexend:wght@400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet" />
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons|Material+Icons+Outlined" rel="stylesheet" />
-    <!-- Prism.js Theme (Okaidia is a good dark theme) -->
+    
+    <!-- Prism.js Theme (Okaidia is a good dark theme base) -->
     <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-okaidia.min.css" rel="stylesheet" />
+
     <style type="text/tailwindcss">
         :root {
-            --bg-primary: #111827; /* gray-900 */
-            --bg-secondary: #1F2937; /* gray-800 */
-            --bg-tertiary: #374151; /* gray-700 */
+            --bg-primary: #0A0F19; /* A darker, richer blue-gray */
+            --bg-secondary: #111827; /* gray-900 */
+            --bg-tertiary: #1F2937; /* gray-800 */
+            --border-color: #374151; /* gray-700 */
             --text-primary: #F3F4F6; /* gray-100 */
             --text-secondary: #9CA3AF; /* gray-400 */
             --text-muted: #6B7280; /* gray-500 */
             --accent-primary: #4f46e5; /* indigo-600 */
             --accent-primary-hover: #4338ca; /* indigo-700 */
-            --border-color: #374151; /* gray-700 */
         }
         body {
             font-family: 'Inter', sans-serif;
@@ -29,186 +31,119 @@
             min-height: 100vh;
             display: flex;
             flex-direction: column;
-            @apply leading-relaxed; /* Added for better default line-height */
+            @apply leading-relaxed;
         }
-        #root, .flex-1.flex.flex-col { /* Ensure root and main content flex grow */
+        #root, .flex-1.flex.flex-col {
             flex-grow: 1;
             display: flex;
             flex-direction: column;
         }
-        .icon-btn {
-            @apply text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors duration-150;
-        }
-        .nav-link {
-            @apply flex items-center space-x-3 px-3 py-2.5 rounded-lg text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] transition-colors duration-150;
-        }
-        .nav-link.active {
-            @apply bg-[var(--accent-primary)] text-white;
-        }
-        .card { /* Main panel styling for DashboardPage */
-            @apply bg-[var(--bg-secondary)] p-6 rounded-xl shadow-lg;
-        }
-        .btn-primary { /* General primary button for DashboardPage */
-            @apply bg-[var(--accent-primary)] text-white font-semibold py-3 px-6 rounded-lg shadow-md hover:bg-[var(--accent-primary-hover)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-[var(--bg-secondary)] focus:ring-[var(--accent-primary)] transition-colors duration-150 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed;
-        }
-        .btn-secondary { /* General secondary button for DashboardPage */
-             @apply bg-[var(--bg-tertiary)] text-[var(--text-primary)] font-medium py-3 px-5 rounded-lg hover:bg-opacity-80 transition-colors duration-150 flex items-center justify-center;
-        }
-         .input-method-btn { /* For DashboardPage */
-            @apply flex flex-col items-center justify-center space-y-1 sm:space-y-1.5 p-4 sm:p-5 rounded-lg bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:bg-opacity-70 hover:text-[var(--text-primary)] transition-all duration-200 ease-in-out transform hover:scale-105 cursor-pointer;
-        }
-        .input-method-btn.active { /* For DashboardPage */
-            @apply bg-[var(--accent-primary)] text-white ring-2 ring-offset-2 ring-offset-[var(--bg-primary)] ring-[var(--accent-primary)];
-        }
-        .input-method-btn .material-icons-outlined { /* For DashboardPage */
-            @apply text-3xl;
-        }
+        .font-lexend { font-family: 'Lexend', sans-serif; }
+        .font-fira-code { font-family: 'Fira Code', monospace; }
 
-        /* HomePage specific panel styling (if different from .card) */
-        .home-panel {
-             @apply bg-gray-800 rounded-xl shadow-2xl; /* bg-gray-800 is var(--bg-secondary) */
-        }
+        /* General UI Elements */
+        .icon-btn { @apply text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors duration-150; }
+        .nav-link { @apply flex items-center space-x-3 px-3 py-2.5 rounded-lg text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] transition-colors duration-150; }
+        .nav-link.active { @apply bg-[var(--accent-primary)] text-white font-semibold; }
+        
+        /* Dashboard Page Specific Styles */
+        .card { @apply bg-[var(--bg-secondary)] p-6 rounded-xl shadow-lg; }
+        .btn-primary { @apply bg-[var(--accent-primary)] text-white font-semibold py-3 px-6 rounded-lg shadow-md hover:bg-[var(--accent-primary-hover)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-[var(--bg-secondary)] focus:ring-[var(--accent-primary)] transition-colors duration-150 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed; }
+        .btn-secondary { @apply bg-[var(--bg-tertiary)] text-[var(--text-primary)] font-medium py-3 px-5 rounded-lg hover:bg-opacity-80 transition-colors duration-150 flex items-center justify-center; }
+        .input-method-btn { @apply flex flex-col items-center justify-center space-y-1 sm:space-y-1.5 p-4 sm:p-5 rounded-lg bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:bg-opacity-70 hover:text-[var(--text-primary)] transition-all duration-200 ease-in-out transform hover:scale-105 cursor-pointer; }
+        .input-method-btn.active { @apply bg-[var(--accent-primary)] text-white ring-2 ring-offset-2 ring-offset-[var(--bg-primary)] ring-[var(--accent-primary)]; }
+        .input-method-btn .material-icons-outlined { @apply text-3xl; }
 
-        /* Global scrollbar styles */
-        ::-webkit-scrollbar {
-            width: 8px;
-            height: 8px;
-        }
-        ::-webkit-scrollbar-track {
-            background: var(--bg-secondary); 
-        }
-        ::-webkit-scrollbar-thumb {
-            background: var(--accent-primary); 
-            border-radius: 4px;
-        }
-        ::-webkit-scrollbar-thumb:hover {
-            background: var(--accent-primary-hover);
-        }
+        /* Global Scrollbar Styles */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: var(--bg-secondary); }
+        ::-webkit-scrollbar-thumb { background: var(--accent-primary); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--accent-primary-hover); }
 
-        /* Custom scrollbar for smaller elements, e.g. textareas or specific divs */
-        .custom-scrollbar-small::-webkit-scrollbar {
-            width: 6px;
-            height: 6px;
-        }
-        .custom-scrollbar-small::-webkit-scrollbar-track {
-            background: var(--bg-primary); /* Darker track for contrast within components */
-            border-radius: 3px;
-        }
-        .custom-scrollbar-small::-webkit-scrollbar-thumb {
-            background: var(--bg-tertiary); /* Lighter thumb than global */
-            border-radius: 3px;
-            border: 1px solid var(--bg-primary); /* Border to make it pop */
-        }
-        .custom-scrollbar-small::-webkit-scrollbar-thumb:hover {
-            background: var(--text-muted);
-        }
+        /* Custom Scrollbar for Components */
+        .custom-scrollbar-small::-webkit-scrollbar { width: 6px; height: 6px; }
+        .custom-scrollbar-small::-webkit-scrollbar-track { background: var(--bg-primary); border-radius: 3px; }
+        .custom-scrollbar-small::-webkit-scrollbar-thumb { background: var(--bg-tertiary); border-radius: 3px; border: 1px solid var(--bg-primary); }
+        .custom-scrollbar-small::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
 
-        /* Styling for react-simple-code-editor */
+        /* Prose styles for rendered markdown/AI text (using @tailwindcss/typography) */
+        .prose-invert {
+          --tw-prose-body: theme('colors.gray.300');
+          --tw-prose-headings: theme('colors.white');
+          --tw-prose-lead: theme('colors.gray.400');
+          --tw-prose-links: theme('colors.indigo.400');
+          --tw-prose-bold: theme('colors.white');
+          --tw-prose-counters: theme('colors.gray.400');
+          --tw-prose-bullets: theme('colors.indigo.500');
+          --tw-prose-hr: theme('colors.gray.700');
+          --tw-prose-quotes: theme('colors.gray.200');
+          --tw-prose-quote-borders: theme('colors.indigo.600');
+          --tw-prose-captions: theme('colors.gray.400');
+          --tw-prose-code: theme('colors.sky.300');
+          --tw-prose-pre-code: theme('colors.gray.300');
+          --tw-prose-pre-bg: #1e293b; /* gray-800 */
+          --tw-prose-th-borders: theme('colors.gray.600');
+          --tw-prose-td-borders: theme('colors.gray.700');
+        }
+        .prose-sm p, .prose p, .prose-xs p { @apply my-1.5; }
+        .prose-sm ul, .prose ul, .prose-xs ul { @apply my-1.5; }
+        
+        /* react-simple-code-editor styles */
         .code-editor-textarea, .code-editor-pre {
             outline: none !important;
             box-shadow: none !important;
         }
-        .token.comment, .token.prolog, .token.doctype, .token.cdata { color: #6272a4; } /* slate-500 equivalent */
-        .token.punctuation { color: #f8f8f2; } /* near white */
-        .token.property, .token.tag, .token.constant, .token.symbol, .token.deleted { color: #ff79c6; } /* pink-ish */
-        .token.boolean, .token.number { color: #bd93f9; } /* purple-400 */
-        .token.selector, .token.attr-name, .token.string, .token.char, .token.builtin, .token.inserted { color: #50fa7b; } /* green-400 */
-        .token.operator, .token.entity, .token.url, .language-css .token.string, .style .token.string, .token.variable { color: #f8f8f2; }
-        .token.atrule, .token.attr-value, .token.function, .token.class-name { color: #8be9fd; } /* cyan-300 / sky-400 */
-        .token.keyword { color: #ff79c6; font-weight: bold; } /* pink, bold */
-        .token.regex, .token.important { color: #ffb86c; } /* orange-ish */
-        .token.important, .token.bold { font-weight: bold; }
-        .token.italic { font-style: italic; }
-        .token.entity { cursor: help; }
-
-        /* Prose styles for rendered markdown/text from AI */
-        /* Tailwind's prose plugin typically handles this well. Adding minor overrides if needed. */
-        .prose {
-          color: var(--text-primary);
-          line-height: 1.625; /* leading-relaxed */
-        }
-        .prose strong {
-          color: var(--text-primary);
-          font-weight: 600;
-        }
-        .prose a {
-          color: var(--accent-primary);
-          text-decoration: none;
-        }
-        .prose a:hover {
-          text-decoration: underline;
-        }
-        .prose code {
-          background-color: var(--bg-tertiary);
-          color: var(--text-primary);
-          padding: 0.125em 0.25em;
-          border-radius: 0.25rem;
-          font-size: 0.875em;
-        }
-        .prose pre {
-          background-color: var(--bg-secondary) !important; /* Important to override Prism inline styles if any */
-          color: var(--text-primary) !important;
-          padding: 1em;
-          border-radius: 0.5rem;
-          overflow-x: auto;
-        }
-        .prose pre code {
-          background-color: transparent !important;
-          padding: 0 !important;
-          font-size: 1em !important;
-        }
-        .prose ul > li::before { /* For Tailwind prose list markers */
-            background-color: var(--accent-primary);
-        }
-        /* More specific prose adjustments if using Tailwind's typography plugin */
-        .prose-sm p, .prose p { @apply my-2; } /* Example: Adjust paragraph margins */
-        .prose-sm ul, .prose ul, .prose-sm ol, .prose ol { @apply my-2; }
-        .prose-sm li, .prose li { @apply my-1; }
 
         /* Custom Prism.js Overrides for Theme Consistency */
+        /* These styles will override the default Okaidia theme to better match our UI */
         pre[class*="language-"] {
-            background-color: transparent !important; /* Make Prism's pre background transparent */
-            border-radius: 0 !important; /* Remove Prism's border-radius, let CodeBlock wrapper handle it */
-            margin: 0 !important; /* Remove Prism's margin, let CodeBlock wrapper/component handle it */
-            /* Tailwind padding classes on CodeBlock's <pre> element should override Prism's default padding. */
-        }
-
-        /* Remove text-shadow from code elements and tokens for a flatter, cleaner look */
-        pre[class*="language-"] code[class*="language-"],
-        pre[class*="language-"] code[class*="language-"] span,
-        pre[class*="language-"] span {
+            background: transparent !important; /* Make Prism's pre background transparent so our component controls it */
+            border-radius: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important; /* Padding will be on the wrapper */
             text-shadow: none !important;
+            font-family: 'Fira Code', monospace !important;
+            font-size: 0.8rem !important;
+            line-height: 1.6 !important;
         }
-
+        code[class*="language-"] {
+            text-shadow: none !important;
+            font-family: 'Fira Code', monospace !important;
+        }
+        .token.comment, .token.prolog, .token.doctype, .token.cdata { color: #8F9EB3; font-style: italic; } /* Lighter gray */
+        .token.punctuation { color: #A7B3C2; }
+        .token.property, .token.tag, .token.constant, .token.symbol, .token.deleted { color: #FF7B72; } /* A softer red/pink */
+        .token.boolean, .token.number { color: #d8b4fe; } /* purple-300 */
+        .token.selector, .token.attr-name, .token.string, .token.char, .token.builtin, .token.inserted { color: #A6E22E; } /* A vibrant lime green */
+        .token.operator, .token.entity, .token.url, .language-css .token.string, .style .token.string { color: #66D9EF; } /* A bright cyan for operators */
+        .token.atrule, .token.attr-value, .token.function, .token.class-name { color: #A6E22E; }
+        .token.keyword { color: #66D9EF; font-weight: 500; }
+        .token.regex, .token.important { color: #FD971F; } /* Orange */
+        .token.important, .token.bold { font-weight: bold; }
+        .token.italic { font-style: italic; }
     </style>
 
-<!-- Prism.js Core and Autoloader for syntax highlighting -->
-<!-- Ensure these are loaded after Tailwind and other styles but before your main app script if components rely on Prism being available immediately -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js" defer></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js" defer></script>
-
-<!-- Importmap removed as Vite will handle module resolution from node_modules -->
-
+    <!-- Prism.js Core and Autoloader for syntax highlighting -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js" defer></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js" defer></script>
 <script type="importmap">
 {
   "imports": {
-    "react/": "https://esm.sh/react@^19.1.0/",
-    "react": "https://esm.sh/react@^19.1.0",
-    "@google/genai": "https://esm.sh/@google/genai@^1.6.0",
-    "react-dom/": "https://esm.sh/react-dom@^19.1.0/",
-    "vite": "https://esm.sh/vite@^6.3.5",
-    "react-hot-toast": "https://esm.sh/react-hot-toast@^2.5.2",
-    "react-simple-code-editor": "https://esm.sh/react-simple-code-editor@^0.14.1",
-    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^4.6.0",
-    "process": "https://esm.sh/process@^0.11.10"
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.21.0",
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "react-hot-toast": "https://aistudiocdn.com/react-hot-toast@^2.6.0",
+    "vite": "https://aistudiocdn.com/vite@^7.1.8",
+    "@vitejs/plugin-react": "https://aistudiocdn.com/@vitejs/plugin-react@^5.0.4",
+    "react-simple-code-editor": "https://aistudiocdn.com/react-simple-code-editor@^0.14.1"
   }
 }
 </script>
 <link rel="stylesheet" href="/index.css">
 </head>
-<body class="bg-bg-primary text-text-primary">
+<body class="bg-bg-primary text-text-primary selection:bg-indigo-500/50 selection:text-white">
     <div id="root"></div>
-    <!-- Main application script -->
     <script type="module" src="/src/index.tsx"></script>
 <script type="module" src="/index.tsx"></script>
 </body>

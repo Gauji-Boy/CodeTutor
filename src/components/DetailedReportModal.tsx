@@ -1,3 +1,4 @@
+
 import React from 'react';
 import toast from 'react-hot-toast';
 import { ActivityItem, ActivityType, SupportedLanguage, LanguageDisplayNames } from '../types';
@@ -14,6 +15,7 @@ interface ActivityCounts {
     concept_explanation: number;
     paste_analysis: number;
     settings_update: number;
+    debug_analysis: number;
 }
 
 interface LanguageFocus {
@@ -31,9 +33,12 @@ const DetailedReportModalComponent: React.FC<DetailedReportModalProps> = ({ isOp
             concept_explanation: 0,
             paste_analysis: 0,
             settings_update: 0,
+            debug_analysis: 0,
         };
         activities.forEach(activity => {
-            counts[activity.type]++;
+            if (counts.hasOwnProperty(activity.type)) {
+                counts[activity.type]++;
+            }
         });
         return counts;
     };
@@ -123,6 +128,7 @@ const DetailedReportModalComponent: React.FC<DetailedReportModalProps> = ({ isOp
                             {renderStatisticItem("File Analyses", activityCounts.file_analysis)}
                             {renderStatisticItem("Concept Explanations", activityCounts.concept_explanation)}
                             {renderStatisticItem("Pasted Code Analyses", activityCounts.paste_analysis)}
+                            {renderStatisticItem("Debug Analyses", activityCounts.debug_analysis)}
                             {renderStatisticItem("Settings Updates", activityCounts.settings_update)}
                         </div>
                     </section>

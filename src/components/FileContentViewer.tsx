@@ -29,9 +29,7 @@ const FileContentViewerComponent: React.FC<FileContentViewerProps> = ({ codeCont
                     </button>
                 )}
             </div>
-            <div className="max-h-64 overflow-y-auto custom-scrollbar-small rounded-md border border-gray-600/70">
-                 <CodeBlock code={codeContent} language={language} />
-            </div>
+            <CodeBlock code={codeContent} language={language} showLineNumbers containerClassName="max-h-64" />
         </div>
     );
 };

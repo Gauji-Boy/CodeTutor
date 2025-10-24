@@ -1,6 +1,6 @@
-
 import React, { useState, useEffect, useCallback } from 'react';
-import DashboardPage from './pages/DashboardPage';
+// FIX: Changed to a named import as DashboardPage is not a default export.
+import { DashboardPage } from './pages/DashboardPage';
 import { HomePage } from './pages/HomePage';
 import { Toaster, toast } from 'react-hot-toast';
 import { ActivityItem } from './types';
@@ -18,10 +18,12 @@ const App: React.FC = () => {
             const stored = localStorage.getItem(ACTIVITY_STORAGE_KEY);
             if (stored) {
                 const parsedActivities = JSON.parse(stored) as any[];
+                // Ensure all fields, including new ones, are handled gracefully on load
                 return parsedActivities.map(activity => ({
                     ...activity,
                     timestamp: new Date(activity.timestamp),
                     analysisDifficulty: activity.analysisDifficulty || 'easy',
+                    projectChatHistory: activity.projectChatHistory || null,
                 })).sort((a,b) => b.timestamp.getTime() - a.timestamp.getTime());
             }
         } catch (error) {
@@ -41,7 +43,6 @@ const App: React.FC = () => {
             const activitiesToStore = allActivities.map(activity => ({
                 ...activity,
                 timestamp: activity.timestamp.toISOString(),
-                analysisDifficulty: activity.analysisDifficulty || 'easy',
             }));
             localStorage.setItem(ACTIVITY_STORAGE_KEY, JSON.stringify(activitiesToStore));
         } catch (error) {
@@ -49,13 +50,21 @@ const App: React.FC = () => {
         }
     }, [allActivities]);
 
-    const addActivity = useCallback((newActivity: ActivityItem) => {
+    const updateOrAddActivity = useCallback((activityToUpdate: ActivityItem) => {
         setAllActivities(prevActivities => {
-            const activityToAdd = {
-                ...newActivity,
-                analysisDifficulty: newActivity.analysisDifficulty || 'easy'
-            };
-            const updatedActivities = [activityToAdd, ...prevActivities];
+            const index = prevActivities.findIndex(a => a.id === activityToUpdate.id);
+            let updatedActivities;
+
+            if (index !== -1) {
+                // Update existing activity
+                updatedActivities = [...prevActivities];
+                updatedActivities[index] = activityToUpdate;
+            } else {
+                // Add new activity
+                updatedActivities = [activityToUpdate, ...prevActivities];
+            }
+
+            // Sort by timestamp and slice to max length
             return updatedActivities
                 .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
                 .slice(0, MAX_ACTIVITIES);
@@ -77,10 +86,7 @@ const App: React.FC = () => {
             toast.error("Settings updates cannot be reloaded into the analysis view.", { icon: 'ℹ️', duration: 4000 });
             return;
         }
-        setActivityToLoad({
-            ...activity,
-            analysisDifficulty: activity.analysisDifficulty || 'easy'
-        });
+        setActivityToLoad(activity);
         setCurrentView('analysis');
     };
 
@@ -149,7 +155,7 @@ const App: React.FC = () => {
                 <DashboardPage
                     activities={allActivities}
                     onViewActivityDetail={navigateToAnalysis}
-                    onAddActivity={addActivity}
+                    onUpdateActivity={updateOrAddActivity}
                     onClearAllActivities={clearAllActivities}
                 />
             )}
@@ -158,7 +164,7 @@ const App: React.FC = () => {
                     key={activityToLoad ? activityToLoad.id : 'new_analysis_view'} // Added key here
                     initialActivity={activityToLoad}
                     onBackToDashboard={navigateToDashboard}
-                    onAddActivity={addActivity}
+                    onUpdateActivity={updateOrAddActivity}
                     onClearAllActivities={clearAllActivities}
                 />
             )}
