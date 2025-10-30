@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import toast from 'react-hot-toast';
 import { SettingsPanel } from '../components/SettingsPanel';
@@ -12,7 +13,7 @@ interface DashboardPageProps {
     onClearAllActivities: () => void;
 }
 
-type InputType = 'file' | 'concept' | 'paste' | 'debug' | 'project';
+type InputType = 'file' | 'concept' | 'paste' | 'debug' | 'project' | 'image';
 
 const formatSimpleTimestamp = (date: Date): string => {
     const now = new Date();
@@ -37,6 +38,10 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ activities, onView
     const [projectName, setProjectName] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState<boolean>(false);
 
+    // New state for image upload
+    const [selectedImageFile, setSelectedImageFile] = useState<File | null>(null);
+    const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
+    
     const [isSettingsPanelOpen, setIsSettingsPanelOpen] = useState(false);
     const settingsPanelRef = useRef<HTMLDivElement>(null);
     const settingsButtonRef = useRef<HTMLButtonElement>(null);
@@ -54,6 +59,15 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ activities, onView
         if (isSettingsPanelOpen) document.addEventListener('mousedown', handleClickOutside);
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, [isSettingsPanelOpen]);
+    
+    // Cleanup for image preview URL
+    useEffect(() => {
+        return () => {
+            if (imagePreviewUrl) {
+                URL.revokeObjectURL(imagePreviewUrl);
+            }
+        };
+    }, [imagePreviewUrl]);
 
     const toggleSettingsPanel = () => setIsSettingsPanelOpen(prev => !prev);
 
@@ -66,6 +80,11 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ activities, onView
         setDebugCode('');
         setProjectFiles(null);
         setProjectName(null);
+        setSelectedImageFile(null);
+        if (imagePreviewUrl) {
+            URL.revokeObjectURL(imagePreviewUrl);
+        }
+        setImagePreviewUrl(null);
     };
 
     const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -82,6 +101,20 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ activities, onView
         }
     };
     
+    const handleImageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (file) {
+            setSelectedImageFile(file);
+            if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
+            setImagePreviewUrl(URL.createObjectURL(file));
+            toast.success(`Image "${file.name}" selected.`);
+        } else {
+            setSelectedImageFile(null);
+            if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
+            setImagePreviewUrl(null);
+        }
+    };
+    
     const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
         event.preventDefault(); event.stopPropagation();
         const dropZone = event.currentTarget;
@@ -93,6 +126,21 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ activities, onView
             reader.onload = (e) => setFileContentForAnalysis(e.target?.result as string);
             reader.readAsText(file);
             toast.success(`File "${file.name}" dropped.`);
+        }
+    };
+
+    const handleImageDrop = (event: React.DragEvent<HTMLDivElement>) => {
+        event.preventDefault(); event.stopPropagation();
+        const dropZone = event.currentTarget;
+        dropZone.classList.remove('border-[var(--accent-primary)]', 'bg-opacity-10', 'bg-[var(--accent-primary)]');
+        const file = event.dataTransfer.files?.[0];
+        if (file && file.type.startsWith('image/')) {
+            setSelectedImageFile(file);
+            if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
+            setImagePreviewUrl(URL.createObjectURL(file));
+            toast.success(`Image "${file.name}" dropped.`);
+        } else if (file) {
+            toast.error("Please drop an image file (PNG, JPG, etc.).");
         }
     };
 
@@ -171,6 +219,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ activities, onView
         let newActivityColor = 'text-[var(--accent-primary)]';
         let newActivityLang: SupportedLanguage | undefined = SupportedLanguage.UNKNOWN;
         let originalInputText: string | undefined = undefined;
+        let originalImageBase64: string | undefined = undefined;
         let newActivityProjectFiles: ProjectFile[] | undefined = undefined;
 
         if (activeInputType === 'file' && selectedFileName && fileContentForAnalysis) {
@@ -182,6 +231,25 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ activities, onView
             if (newActivityLang === SupportedLanguage.UNKNOWN) {
                 toast.error(`Unsupported file type: "${extension}". Analysis page will require manual language selection.`, {duration: 5000});
             }
+        } else if (activeInputType === 'image' && selectedImageFile) {
+            const reader = new FileReader();
+            reader.readAsDataURL(selectedImageFile);
+            reader.onload = () => {
+                const newActivity: ActivityItem = {
+                    id: Date.now().toString() + "_dashboard_submission",
+                    type: 'image_analysis',
+                    title: selectedImageFile.name,
+                    timestamp: new Date(),
+                    summary: 'Image analysis requested from dashboard...',
+                    icon: 'image_search',
+                    colorClass: 'text-cyan-400',
+                    originalImage: reader.result as string,
+                };
+                onViewActivityDetail(newActivity);
+            };
+            reader.onerror = () => toast.error("Could not read image file.");
+            // Return early as the activity creation is async
+            return;
         } else if (activeInputType === 'concept' && conceptDescription.trim()) {
             newActivityType = 'concept_explanation';
             newActivityTitle = `Concept: ${conceptDescription.substring(0,30)}${conceptDescription.length > 30 ? '...' : ''}`;
@@ -227,6 +295,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ activities, onView
             colorClass: newActivityColor,
             language: newActivityLang, 
             originalInput: originalInputText,
+            originalImage: originalImageBase64,
             projectFiles: newActivityProjectFiles,
             analysisResult: null,
             debugResult: null,
@@ -249,13 +318,15 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ activities, onView
         (activeInputType === 'concept' && !conceptDescription.trim()) ||
         (activeInputType === 'paste' && !pastedCode.trim()) ||
         (activeInputType === 'debug' && !debugCode.trim()) ||
-        (activeInputType === 'project' && (!projectFiles || projectFiles.length === 0));
+        (activeInputType === 'project' && (!projectFiles || projectFiles.length === 0)) ||
+        (activeInputType === 'image' && !selectedImageFile);
 
     let analyzeButtonText = "Analyze Code";
     if (activeInputType === 'concept') analyzeButtonText = "Explain Concept";
     else if (activeInputType === 'paste') analyzeButtonText = "Analyze Pasted Code";
     else if (activeInputType === 'debug') analyzeButtonText = "Debug Code";
     else if (activeInputType === 'project') analyzeButtonText = "Analyze Project";
+    else if (activeInputType === 'image') analyzeButtonText = "Extract Code from Image";
 
     const recentActivitiesToShow = activities.slice(0, 3);
 
@@ -314,7 +385,6 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ activities, onView
                                 aria-labelledby="settings-panel-title"
                             >
                                 <SettingsPanel 
-                                    onUpdateActivity={onUpdateActivity}
                                     onClearAllActivities={onClearAllActivities}
                                 />
                             </div>
@@ -335,10 +405,14 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ activities, onView
                                 <section className="card">
                                     <h3 className="text-lg font-semibold text-[var(--text-primary)] mb-1">Start New Analysis</h3>
                                     <p className="text-sm text-[var(--text-muted)] mb-6">Choose your preferred method to submit code or ask questions.</p>
-                                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
+                                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
                                         <button onClick={() => handleInputTypeChange('file')} className={`input-method-btn ${activeInputType === 'file' ? 'active' : ''}`} aria-pressed={activeInputType === 'file'} aria-label="Select Upload File method">
                                             <span className="material-icons-outlined">upload_file</span>
                                             <span>Upload File</span>
+                                        </button>
+                                        <button onClick={() => handleInputTypeChange('image')} className={`input-method-btn ${activeInputType === 'image' ? 'active' : ''}`} aria-pressed={activeInputType === 'image'} aria-label="Select Upload Image method">
+                                            <span className="material-icons-outlined">image_search</span>
+                                            <span>From Image</span>
                                         </button>
                                         <button onClick={() => handleInputTypeChange('concept')} className={`input-method-btn ${activeInputType === 'concept' ? 'active' : ''}`} aria-pressed={activeInputType === 'concept'} aria-label="Select Explain Concept method">
                                             <span className="material-icons-outlined">lightbulb</span>
@@ -376,6 +450,31 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ activities, onView
                                                 <input className="hidden" id="fileUploadInputDashboard" type="file" onChange={handleFileChange} aria-hidden="true" accept={AcceptedFileExtensions}/>
                                             </div>
                                             {selectedFileName && ( <div className="text-sm text-[var(--text-secondary)] mt-2">Selected file: <span className="font-medium text-[var(--text-primary)]">{selectedFileName}</span></div> )}
+                                        </div>
+                                    )}
+
+                                    {activeInputType === 'image' && (
+                                        <div className="space-y-4">
+                                            <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1" htmlFor="imageUploadInputDashboard">Upload Image with Code</label>
+                                            <div 
+                                                className="border-2 border-dashed border-[var(--border-color)] rounded-lg p-6 flex flex-col items-center justify-center bg-[var(--bg-primary)] hover:border-[var(--accent-primary)] transition-colors duration-200 cursor-pointer aspect-video"
+                                                onClick={() => document.getElementById('imageUploadInputDashboard')?.click()}
+                                                onDrop={handleImageDrop}
+                                                onDragOver={handleDragOver}
+                                                onDragLeave={handleDragLeave}
+                                            >
+                                                {imagePreviewUrl ? (
+                                                    <img src={imagePreviewUrl} alt="Selected code preview" className="max-h-full max-w-full object-contain rounded-md" />
+                                                ) : (
+                                                    <>
+                                                        <span className="material-icons-outlined text-5xl text-[var(--text-muted)] mb-3">add_photo_alternate</span>
+                                                        <p className="text-[var(--text-secondary)] mb-1 text-center"><span className="font-semibold text-[var(--accent-primary)]">Click to choose image</span> or drag and drop</p>
+                                                        <p className="text-xs text-[var(--text-muted)] text-center">PNG, JPG, WEBP, GIF</p>
+                                                    </>
+                                                )}
+                                                <input className="hidden" id="imageUploadInputDashboard" type="file" onChange={handleImageChange} aria-hidden="true" accept="image/*"/>
+                                            </div>
+                                            {selectedImageFile && ( <div className="text-sm text-[var(--text-secondary)] mt-2">Selected image: <span className="font-medium text-[var(--text-primary)]">{selectedImageFile.name}</span></div> )}
                                         </div>
                                     )}
 
@@ -489,6 +588,10 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ activities, onView
                                         <div className="flex justify-between items-center">
                                             <span className="text-sm text-[var(--text-secondary)]">Files Analyzed:</span>
                                             <span className="text-sm font-semibold text-[var(--text-primary)]">{activities.filter(a => a.type === 'file_analysis').length}</span>
+                                        </div>
+                                         <div className="flex justify-between items-center">
+                                            <span className="text-sm text-[var(--text-secondary)]">Images Analyzed:</span>
+                                            <span className="text-sm font-semibold text-[var(--text-primary)]">{activities.filter(a => a.type === 'image_analysis').length}</span>
                                         </div>
                                         <div className="flex justify-between items-center">
                                             <span className="text-sm text-[var(--text-secondary)]">Concepts Explained:</span>

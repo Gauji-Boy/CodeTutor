@@ -1,3 +1,4 @@
+
 export interface BlockExplanation {
     codeBlock: string;
     explanation: string;
@@ -201,9 +202,14 @@ export interface TopicExplanationVisibility {
     followUp: boolean;
 }
 
+export type FontSize = 'sm' | 'base' | 'lg';
+export type FontFamily = 'inter' | 'lexend' | 'roboto-slab';
+export type CodeFontFamily = 'fira-code' | 'jetbrains-mono';
+export type AiModel = 'gemini-2.5-flash' | 'gemini-2.5-pro' | 'auto';
+
 export interface GlobalSettings {
+    // General
     preferredInitialDifficulty: ExampleDifficulty;
-    isLeftPanelCollapsed?: boolean;
     preferredInstructionFormat: 'normal' | 'line-by-line';
     defaultPracticeDifficulty: ExampleDifficulty;
     visibleSections: {
@@ -212,6 +218,18 @@ export interface GlobalSettings {
         practiceQuestion: boolean;
         instructionsToSolve: boolean;
     };
+    // AI Behavior
+    preferredModel: AiModel;
+    customSystemInstruction: string;
+    temperature: number; // 0.0 to 1.0
+    topP: number; // 0.0 to 1.0
+    // Interface
+    fontSize: FontSize;
+    fontFamily: FontFamily;
+    codeFontFamily: CodeFontFamily;
+    reduceMotion: boolean;
+    // System
+    isLeftPanelCollapsed?: boolean;
 }
 
 // Conversational Chat
@@ -221,7 +239,7 @@ export interface ChatMessage {
 }
 
 // Activity Log
-export type ActivityType = 'file_analysis' | 'concept_explanation' | 'paste_analysis' | 'settings_update' | 'debug_analysis' | 'project_analysis';
+export type ActivityType = 'file_analysis' | 'concept_explanation' | 'paste_analysis' | 'settings_update' | 'debug_analysis' | 'project_analysis' | 'image_analysis';
 
 export interface ActivityItem {
     id: string;
@@ -234,6 +252,7 @@ export interface ActivityItem {
     language?: SupportedLanguage; 
     
     originalInput?: string; 
+    originalImage?: string;
     analysisResult?: AnalysisResult | null; 
     debugResult?: DebugResult | null;
     analysisDifficulty?: ExampleDifficulty; 

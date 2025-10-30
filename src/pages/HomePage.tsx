@@ -1,9 +1,11 @@
+
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { toast } from 'react-hot-toast';
 import Editor from 'react-simple-code-editor';
 declare var Prism: any;
 
 import { FileUpload } from '../components/FileUpload';
+import { ImageUpload } from '../components/ImageUpload';
 import { ResultDisplay } from '../components/ResultDisplay';
 import { LoadingSpinner } from '../components/LoadingSpinner';
 import { ErrorMessage } from '../components/ErrorMessage';
@@ -14,7 +16,7 @@ import { DebugResultDisplay } from '../components/DebugResultDisplay';
 import { ProjectResultDisplay } from '../components/ProjectResultDisplay';
 import { ProjectUpload } from '../components/ProjectUpload'; // New import
 import { useGlobalSettings } from '../hooks/useGlobalSettings';
-import { analyzeCodeWithGemini, analyzeConceptWithGemini, debugCodeWithGemini, analyzeProjectWithGemini } from '../services/geminiService';
+import { analyzeCodeWithGemini, analyzeConceptWithGemini, debugCodeWithGemini, analyzeProjectWithGemini, extractCodeFromImageWithGemini, GeminiRequestConfig } from '../services/geminiService';
 import { escapeHtml } from '../utils/textUtils';
 import {
     AnalysisResult,
@@ -29,11 +31,12 @@ import {
     PracticeMaterial,
     ProjectAnalysis,
     ProjectFile,
-    ChatMessage
+    ChatMessage,
+    AiModel
 } from '../types';
 import { getPrismLanguageString } from '../components/CodeBlock';
 
-type InputMode = 'fileUpload' | 'conceptTyping' | 'pasteCode' | 'debugCode' | 'projectUpload';
+type InputMode = 'fileUpload' | 'imageUpload' | 'conceptTyping' | 'pasteCode' | 'debugCode' | 'projectUpload';
 
 interface HomePageProps {
     initialActivity?: ActivityItem | null;
@@ -50,7 +53,16 @@ const HomePageInternal: React.FC<HomePageProps> = ({ initialActivity, onBackToDa
     const [projectAnalysisResult, setProjectAnalysisResult] = useState<ProjectAnalysis | null>(null);
     const [apiKeyMissing, setApiKeyMissing] = useState<boolean>(false);
 
-    const { preferredInitialDifficulty, defaultPracticeDifficulty, isLeftPanelCollapsed, setIsLeftPanelCollapsed } = useGlobalSettings();
+    const { 
+        preferredInitialDifficulty, 
+        defaultPracticeDifficulty, 
+        isLeftPanelCollapsed, 
+        setIsLeftPanelCollapsed,
+        preferredModel,
+        customSystemInstruction,
+        temperature,
+        topP
+    } = useGlobalSettings();
 
     const getInitialInputMode = (activity: ActivityItem | null | undefined): InputMode => {
         if (!activity) return 'projectUpload';
@@ -59,6 +71,7 @@ const HomePageInternal: React.FC<HomePageProps> = ({ initialActivity, onBackToDa
             case 'paste_analysis': return 'pasteCode';
             case 'debug_analysis': return 'debugCode';
             case 'project_analysis': return 'projectUpload';
+            case 'image_analysis': return 'imageUpload';
             case 'file_analysis':
             default: return 'fileUpload';
         }
@@ -70,6 +83,10 @@ const HomePageInternal: React.FC<HomePageProps> = ({ initialActivity, onBackToDa
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const [codeContent, setCodeContent] = useState<string | null>(null);
     const [fileLanguage, setFileLanguage] = useState<SupportedLanguage | null>(null);
+
+    // Image Upload Mode
+    const [selectedImageFile, setSelectedImageFile] = useState<File | null>(null);
+    const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
 
     // Project Upload Mode
     const [currentProjectFiles, setCurrentProjectFiles] = useState<ProjectFile[] | null>(null);
@@ -128,6 +145,14 @@ const HomePageInternal: React.FC<HomePageProps> = ({ initialActivity, onBackToDa
         }
     }, [preferredInitialDifficulty, defaultPracticeDifficulty, apiKeyMissing]);
 
+    // Cleanup for image preview URL
+    useEffect(() => {
+        return () => {
+            if (imagePreviewUrl) {
+                URL.revokeObjectURL(imagePreviewUrl);
+            }
+        };
+    }, [imagePreviewUrl]);
 
     useEffect(() => {
         if (!process.env.API_KEY) {
@@ -136,6 +161,27 @@ const HomePageInternal: React.FC<HomePageProps> = ({ initialActivity, onBackToDa
             setError(errMsg); toast.error(errMsg, { duration: 7000, id: 'critical-api-key-error' });
         }
     }, []);
+    
+    const resolveModelForRequest = (
+        mode: InputMode,
+        preferredModelSetting: AiModel
+    ): 'gemini-2.5-flash' | 'gemini-2.5-pro' => {
+        if (preferredModelSetting !== 'auto') {
+            return preferredModelSetting;
+        }
+        // Auto logic: use Pro for more complex tasks, Flash for speed on common tasks
+        switch (mode) {
+            case 'projectUpload':
+            case 'debugCode':
+            case 'conceptTyping': // Concepts can be complex and benefit from Pro
+            case 'imageUpload': // Image processing can be complex
+                return 'gemini-2.5-pro';
+            case 'fileUpload':
+            case 'pasteCode':
+            default:
+                return 'gemini-2.5-flash';
+        }
+    };
 
     const handleAnalyzeFileFromProject = useCallback(async (fileToAnalyze: ProjectFile) => {
         setIsLoading(true);
@@ -156,12 +202,21 @@ const HomePageInternal: React.FC<HomePageProps> = ({ initialActivity, onBackToDa
         setCodeContent(fileToAnalyze.content);
         setFileLanguage(language);
 
+        const modelToUse = resolveModelForRequest('fileUpload', preferredModel);
+        const requestConfig: GeminiRequestConfig = {
+            model: modelToUse,
+            temperature,
+            topP,
+            systemInstruction: customSystemInstruction,
+        };
+
         try {
             const result = await analyzeCodeWithGemini(
                 fileToAnalyze.content, 
                 language, 
                 preferredInitialDifficulty, 
-                defaultPracticeDifficulty
+                defaultPracticeDifficulty,
+                requestConfig
             );
             
             let finalLang = language;
@@ -197,10 +252,22 @@ const HomePageInternal: React.FC<HomePageProps> = ({ initialActivity, onBackToDa
         } finally {
             setIsLoading(false);
         }
-    }, [preferredInitialDifficulty, defaultPracticeDifficulty, onUpdateActivity]);
+    }, [preferredInitialDifficulty, defaultPracticeDifficulty, onUpdateActivity, preferredModel, temperature, topP, customSystemInstruction]);
 
     // Effect to handle initialActivity loading or new session setup
     useEffect(() => {
+        const mapActivityTypeToInputMode = (type: ActivityItem['type']): InputMode => {
+            switch(type) {
+                case 'concept_explanation': return 'conceptTyping';
+                case 'paste_analysis': return 'pasteCode';
+                case 'debug_analysis': return 'debugCode';
+                case 'project_analysis': return 'projectUpload';
+                case 'image_analysis': return 'imageUpload';
+                case 'file_analysis': return 'fileUpload';
+                default: return 'fileUpload'; // fallback
+            }
+        };
+
         const performInitialAnalysis = async (input: string, lang: SupportedLanguage, type: ActivityItem['type'], title: string, difficultyToUse: ExampleDifficulty, practiceDifficultyToUse: ExampleDifficulty) => {
             setIsLoading(true); setError(null); setAnalysisResult(null); setDebugResult(null); setProjectAnalysisResult(null);
             setOriginalInputForAnalysis(input);
@@ -208,20 +275,30 @@ const HomePageInternal: React.FC<HomePageProps> = ({ initialActivity, onBackToDa
             setDifficultyForCurrentAnalysis(difficultyToUse);
             setPracticeDifficultyForCurrentAnalysis(practiceDifficultyToUse);
             toast(`Processing: ${title}...`, {icon: '⏳'});
+            
+            const modeForRequest = mapActivityTypeToInputMode(type);
+            const modelToUse = resolveModelForRequest(modeForRequest, preferredModel);
+            const requestConfig: GeminiRequestConfig = {
+                model: modelToUse,
+                temperature,
+                topP,
+                systemInstruction: customSystemInstruction
+            };
+
             try {
                 let result: AnalysisResult | DebugResult;
                 let finalLang = lang;
                 
                 if (type === 'debug_analysis') {
-                    result = await debugCodeWithGemini(input, lang);
+                    result = await debugCodeWithGemini(input, lang, requestConfig);
                     if (result.detectedLanguage && result.detectedLanguage !== LangEnum.UNKNOWN) {
                         finalLang = result.detectedLanguage;
                         toast(`Language detected: ${LanguageDisplayNames[finalLang]}.`, { icon: 'ℹ️' });
                         setCurrentLanguageForAnalysis(finalLang);
                     }
                     setDebugResult(result);
-                } else if ((type === 'file_analysis' || type === 'paste_analysis')) {
-                    result = await analyzeCodeWithGemini(input, lang, difficultyToUse, practiceDifficultyToUse);
+                } else if ((type === 'file_analysis' || type === 'paste_analysis' || type === 'image_analysis')) { // image analysis result is just a code analysis
+                    result = await analyzeCodeWithGemini(input, lang, difficultyToUse, practiceDifficultyToUse, requestConfig);
                     if (result.detectedLanguage && result.detectedLanguage !== LangEnum.UNKNOWN) {
                         finalLang = result.detectedLanguage;
                         toast(`Language detected: ${LanguageDisplayNames[finalLang]}.`, { icon: 'ℹ️' });
@@ -231,7 +308,7 @@ const HomePageInternal: React.FC<HomePageProps> = ({ initialActivity, onBackToDa
                     }
                     setAnalysisResult(result);
                 } else if (type === 'concept_explanation') {
-                    result = await analyzeConceptWithGemini(input, lang, difficultyToUse, practiceDifficultyToUse);
+                    result = await analyzeConceptWithGemini(input, lang, difficultyToUse, practiceDifficultyToUse, requestConfig);
                     setAnalysisResult(result);
                 } else {
                     throw new Error("Unsupported activity type for initial analysis.");
@@ -261,14 +338,71 @@ const HomePageInternal: React.FC<HomePageProps> = ({ initialActivity, onBackToDa
                 setIsLoading(false);
             }
         };
+        
+        const performInitialImageExtractionAndAnalysis = async (activity: ActivityItem) => {
+            setIsLoading(true); setError(null); setAnalysisResult(null);
+            
+            const modelToUse = resolveModelForRequest('imageUpload', preferredModel);
+            const requestConfig: GeminiRequestConfig = { model: modelToUse, temperature, topP, systemInstruction: customSystemInstruction };
+
+            try {
+                if (!activity.originalImage) throw new Error("Image data is missing from the activity.");
+
+                // Convert base64 back to file for the service
+                const res = await fetch(activity.originalImage);
+                const blob = await res.blob();
+                const imageFile = new File([blob], activity.title, { type: blob.type });
+
+                toast.loading("Extracting code from image...", { id: 'image-extract' });
+                const extractedCode = await extractCodeFromImageWithGemini(imageFile, requestConfig);
+                toast.success("Code extracted, now analyzing...", { id: 'image-extract' });
+
+                const difficulty = activity.analysisDifficulty || preferredInitialDifficulty;
+                const practiceDifficulty = defaultPracticeDifficulty;
+                
+                const result = await analyzeCodeWithGemini(extractedCode, LangEnum.UNKNOWN, difficulty, practiceDifficulty, requestConfig);
+                
+                let finalLang = result.detectedLanguage || LangEnum.UNKNOWN;
+                if (finalLang !== LangEnum.UNKNOWN) {
+                    toast.success(`Language detected: ${LanguageDisplayNames[finalLang]}`, { id: 'image-extract' });
+                }
+                
+                setAnalysisResult(result);
+                setCurrentLanguageForAnalysis(finalLang);
+                setOriginalInputForAnalysis(extractedCode);
+
+                onUpdateActivity({
+                    ...activity,
+                    originalInput: extractedCode,
+                    analysisResult: result,
+                    language: finalLang,
+                    summary: result.topicExplanation.coreConcepts.substring(0, 70) + '...'
+                });
+
+            } catch(err) {
+                const errMessage = err instanceof Error ? err.message : "An unexpected error occurred during image processing.";
+                setError(errMessage); toast.error(errMessage, { id: 'image-extract' }); console.error(err);
+            } finally {
+                setIsLoading(false);
+            }
+        };
 
         const performInitialProjectAnalysis = async (files: ProjectFile[], name: string, activity: ActivityItem) => {
              setIsLoading(true); setError(null); setAnalysisResult(null); setDebugResult(null); setProjectAnalysisResult(null);
              toast(`Analyzing project: ${name}...`, {icon: '⏳'});
              setCurrentProjectFiles(files);
              setCurrentProjectName(name);
+             
+             const modelToUse = resolveModelForRequest('projectUpload', preferredModel);
+             const requestConfig: GeminiRequestConfig = {
+                model: modelToUse,
+                temperature,
+                topP,
+                systemInstruction: customSystemInstruction
+             };
+
              try {
-                const result = await analyzeProjectWithGemini(files, name);
+                const result = await analyzeProjectWithGemini(files, name, requestConfig);
                 setProjectAnalysisResult(result);
 
                 onUpdateActivity({
@@ -294,6 +428,8 @@ const HomePageInternal: React.FC<HomePageProps> = ({ initialActivity, onBackToDa
             if (modeToSet === 'fileUpload' && initialActivity.originalInput) {
                 const mockFile = new File([initialActivity.originalInput], initialActivity.title, { type: "text/plain" });
                 setSelectedFile(mockFile); setCodeContent(initialActivity.originalInput); setFileLanguage(initialActivity.language || null);
+            } else if (modeToSet === 'imageUpload' && initialActivity.originalImage) {
+                setImagePreviewUrl(initialActivity.originalImage); // It's already a data URL
             } else if (modeToSet === 'projectUpload' && initialActivity.projectFiles) {
                 setCurrentProjectFiles(initialActivity.projectFiles); setCurrentProjectName(initialActivity.title);
             } else if (modeToSet === 'conceptTyping') {
@@ -324,6 +460,12 @@ const HomePageInternal: React.FC<HomePageProps> = ({ initialActivity, onBackToDa
                 setCurrentProjectFiles(initialActivity.projectFiles || null); setCurrentProjectName(initialActivity.title);
                 if (apiKeyMissing) setError("Critical Setup Error: The API_KEY environment variable is missing. AI functionalities are disabled."); else setError(null);
                 setIsLoading(false); toast(`Loaded previous project analysis: ${initialActivity.title}`, { icon: '📂' });
+            } else if (initialActivity.type === 'image_analysis' && initialActivity.originalImage) {
+                if (apiKeyMissing) { setError("Critical Setup Error: API_KEY missing."); setIsLoading(false); }
+                else if (analysisStartedForId.current !== initialActivity.id) {
+                    analysisStartedForId.current = initialActivity.id;
+                    performInitialImageExtractionAndAnalysis(initialActivity);
+                }
             } else if (initialActivity.type === 'project_analysis' && initialActivity.projectFiles) {
                  if (apiKeyMissing) { setError("Critical Setup Error: API_KEY missing. Cannot perform analysis."); setIsLoading(false); } 
                  else if (analysisStartedForId.current !== initialActivity.id) {
@@ -354,7 +496,7 @@ const HomePageInternal: React.FC<HomePageProps> = ({ initialActivity, onBackToDa
             setPastedCodeText(''); setDebugCodeText('');
             setIsLoading(false); 
         }
-    }, [initialActivity, preferredInitialDifficulty, defaultPracticeDifficulty, apiKeyMissing, onUpdateActivity, resetAnalysisState, handleAnalyzeFileFromProject]);
+    }, [initialActivity, preferredInitialDifficulty, defaultPracticeDifficulty, apiKeyMissing, onUpdateActivity, resetAnalysisState, handleAnalyzeFileFromProject, preferredModel, temperature, topP, customSystemInstruction]);
 
 
     useEffect(() => {
@@ -377,6 +519,7 @@ const HomePageInternal: React.FC<HomePageProps> = ({ initialActivity, onBackToDa
             resetAnalysisState(true); 
             setInputMode(newMode);
             setSelectedFile(null); setCodeContent(null); setFileLanguage(null);
+            setSelectedImageFile(null); setImagePreviewUrl(null);
             setConceptText(''); setPastedCodeText(''); setDebugCodeText('');
             setCurrentProjectFiles(null); setCurrentProjectName(null);
             if (newMode === 'conceptTyping' && !conceptLanguage) setConceptLanguage(LangEnum.PYTHON); 
@@ -408,6 +551,15 @@ const HomePageInternal: React.FC<HomePageProps> = ({ initialActivity, onBackToDa
         };
         reader.readAsText(file);
     }, [resetAnalysisState, apiKeyMissing]);
+
+    const handleImageSelect = useCallback((file: File) => {
+        setSelectedImageFile(file);
+        resetAnalysisState(false);
+        if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
+        setImagePreviewUrl(URL.createObjectURL(file));
+        if (!apiKeyMissing) setError(null);
+        toast.success(`Image "${file.name}" loaded.`);
+    }, [resetAnalysisState, apiKeyMissing, imagePreviewUrl]);
 
     const handleProjectFilesSelected = async (files: FileList) => {
         if (!files || files.length === 0) {
@@ -525,20 +677,54 @@ const HomePageInternal: React.FC<HomePageProps> = ({ initialActivity, onBackToDa
         let activityTitle = "";
         let activityIcon = 'description';
         let activityColor = 'text-indigo-500';
-
+        
+        const modelToUse = resolveModelForRequest(inputMode, preferredModel);
+        const requestConfig: GeminiRequestConfig = {
+            model: modelToUse,
+            temperature,
+            topP,
+            systemInstruction: customSystemInstruction,
+        };
 
         try {
             let result: AnalysisResult | DebugResult | ProjectAnalysis;
             let currentLang: SupportedLanguage | null = null;
             let summary = "";
 
-            if (inputMode === 'fileUpload') {
+            if (inputMode === 'imageUpload') {
+                if (!selectedImageFile) throw new Error("Please select an image file.");
+                
+                activityType = 'image_analysis';
+                activityTitle = selectedImageFile.name;
+                activityIcon = 'image_search';
+                activityColor = 'text-cyan-400';
+                
+                toast.loading('Extracting code from image...', { id: 'image-process' });
+                
+                const extractedCode = await extractCodeFromImageWithGemini(selectedImageFile, requestConfig);
+                submittedOriginalInput = extractedCode;
+                setOriginalInputForAnalysis(extractedCode);
+                
+                toast.loading('Analyzing extracted code...', { id: 'image-process' });
+
+                result = await analyzeCodeWithGemini(extractedCode, LangEnum.UNKNOWN, initialDifficultyForThisAnalysis, practiceDifficultyForThisAnalysis, requestConfig);
+                setAnalysisResult(result);
+                summary = result.topicExplanation.coreConcepts;
+                
+                if (result.detectedLanguage && result.detectedLanguage !== LangEnum.UNKNOWN) {
+                    currentLang = result.detectedLanguage;
+                    toast.success(`Language detected: ${LanguageDisplayNames[currentLang]}.`, { icon: 'ℹ️', id: 'image-process' });
+                } else {
+                    toast.success('Analysis complete!', { id: 'image-process' });
+                    setError("Could not automatically detect language. Analysis may be inaccurate.");
+                }
+            } else if (inputMode === 'fileUpload') {
                 if (!codeContent || !fileLanguage || fileLanguage === LangEnum.UNKNOWN || !selectedFile) {
                     throw new Error("Please select a valid code file and ensure its language is correctly identified.");
                 }
                 currentLang = fileLanguage; submittedOriginalInput = codeContent; activityType = 'file_analysis';
                 activityTitle = selectedFile.name; activityIcon = 'description'; activityColor = 'text-indigo-400';
-                result = await analyzeCodeWithGemini(codeContent, fileLanguage, initialDifficultyForThisAnalysis, practiceDifficultyForThisAnalysis);
+                result = await analyzeCodeWithGemini(codeContent, fileLanguage, initialDifficultyForThisAnalysis, practiceDifficultyForThisAnalysis, requestConfig);
                 setAnalysisResult(result);
                 summary = result.topicExplanation.coreConcepts;
             } else if (inputMode === 'conceptTyping') {
@@ -548,7 +734,7 @@ const HomePageInternal: React.FC<HomePageProps> = ({ initialActivity, onBackToDa
                 currentLang = conceptLanguage; submittedOriginalInput = conceptText; activityType = 'concept_explanation';
                 activityTitle = `Concept: ${conceptText.substring(0,40)}${conceptText.length > 40 ? '...' : ''}`;
                 activityIcon = 'lightbulb'; activityColor = 'text-green-500';
-                result = await analyzeConceptWithGemini(conceptText, conceptLanguage, initialDifficultyForThisAnalysis, practiceDifficultyForThisAnalysis);
+                result = await analyzeConceptWithGemini(conceptText, conceptLanguage, initialDifficultyForThisAnalysis, practiceDifficultyForThisAnalysis, requestConfig);
                 setAnalysisResult(result);
                 summary = result.topicExplanation.coreConcepts;
             } else if (inputMode === 'pasteCode') {
@@ -557,7 +743,7 @@ const HomePageInternal: React.FC<HomePageProps> = ({ initialActivity, onBackToDa
                 submittedOriginalInput = pastedCodeText; activityType = 'paste_analysis';
                 activityTitle = `Pasted Code: ${pastedCodeText.substring(0,30)}...`;
                 activityIcon = 'content_paste_search'; activityColor = 'text-yellow-500';
-                result = await analyzeCodeWithGemini(pastedCodeText, LangEnum.UNKNOWN, initialDifficultyForThisAnalysis, practiceDifficultyForThisAnalysis);
+                result = await analyzeCodeWithGemini(pastedCodeText, LangEnum.UNKNOWN, initialDifficultyForThisAnalysis, practiceDifficultyForThisAnalysis, requestConfig);
                 setAnalysisResult(result);
                 summary = result.topicExplanation.coreConcepts;
                 if(result.detectedLanguage && result.detectedLanguage !== LangEnum.UNKNOWN) {
@@ -571,7 +757,7 @@ const HomePageInternal: React.FC<HomePageProps> = ({ initialActivity, onBackToDa
                 submittedOriginalInput = debugCodeText; activityType = 'debug_analysis';
                 activityTitle = `Debug: ${debugCodeText.substring(0,30)}...`;
                 activityIcon = 'bug_report'; activityColor = 'text-red-500';
-                result = await debugCodeWithGemini(debugCodeText, LangEnum.UNKNOWN);
+                result = await debugCodeWithGemini(debugCodeText, LangEnum.UNKNOWN, requestConfig);
                 setDebugResult(result);
                 summary = result.summary;
                 if(result.detectedLanguage && result.detectedLanguage !== LangEnum.UNKNOWN) {
@@ -589,14 +775,14 @@ const HomePageInternal: React.FC<HomePageProps> = ({ initialActivity, onBackToDa
                 activityTitle = `Project: ${currentProjectName}`;
                 activityIcon = 'folder_zip';
                 activityColor = 'text-purple-400';
-                result = await analyzeProjectWithGemini(currentProjectFiles, currentProjectName);
+                result = await analyzeProjectWithGemini(currentProjectFiles, currentProjectName, requestConfig);
                 setProjectAnalysisResult(result);
                 summary = result.overview;
             } else {
                  throw new Error("Invalid submission mode.");
             }
             
-            toast.success("Analysis complete!");
+            if(activityType !== 'image_analysis') toast.success("Analysis complete!"); // Image analysis has its own toasts
             setCurrentLanguageForAnalysis(currentLang);
             setOriginalInputForAnalysis(submittedOriginalInput);
             if (error && !error.includes("Critical Setup Error")) setError(null);
@@ -607,6 +793,7 @@ const HomePageInternal: React.FC<HomePageProps> = ({ initialActivity, onBackToDa
                     summary: `${summary.substring(0, 70)}...`, icon: activityIcon, colorClass: activityColor,
                     language: currentLang || undefined,
                     originalInput: (activityType !== 'project_analysis') ? submittedOriginalInput : undefined,
+                    originalImage: activityType === 'image_analysis' ? imagePreviewUrl : undefined,
                     analysisResult: (activityType !== 'debug_analysis' && activityType !== 'project_analysis') ? (result as AnalysisResult) : null,
                     debugResult: activityType === 'debug_analysis' ? (result as DebugResult) : null,
                     analysisDifficulty: initialDifficultyForThisAnalysis,
@@ -618,7 +805,7 @@ const HomePageInternal: React.FC<HomePageProps> = ({ initialActivity, onBackToDa
 
         } catch (err) {
             const errMessage = err instanceof Error ? err.message : "An unexpected error occurred.";
-            setError(errMessage); toast.error(errMessage); console.error(err);
+            setError(errMessage); toast.error(errMessage, { id: 'image-process' }); console.error(err);
         } finally {
             setIsLoading(false);
         }
@@ -645,6 +832,7 @@ const HomePageInternal: React.FC<HomePageProps> = ({ initialActivity, onBackToDa
 
     const isAnalyzeButtonDisabled = isLoading || apiKeyMissing ||
         (inputMode === 'fileUpload' && (!selectedFile || !fileLanguage || fileLanguage === LangEnum.UNKNOWN || !codeContent)) ||
+        (inputMode === 'imageUpload' && !selectedImageFile) ||
         (inputMode === 'conceptTyping' && (!conceptText.trim() || !conceptLanguage || conceptLanguage === LangEnum.UNKNOWN)) ||
         (inputMode === 'pasteCode' && !pastedCodeText.trim()) ||
         (inputMode === 'debugCode' && !debugCodeText.trim()) ||
@@ -663,6 +851,11 @@ const HomePageInternal: React.FC<HomePageProps> = ({ initialActivity, onBackToDa
       currentWelcomeTitle = "Analyze a Project";
       currentWelcomeText = "Select a project folder or a .zip file. The AI will provide a high-level overview of the architecture and a breakdown of each file.";
       currentWelcomeIcon = 'folder_zip';
+    } else if (inputMode === 'imageUpload') {
+        mainSubmitButtonText = 'Extract & Analyze Code'; loadingText = 'Processing Image...'; mainSubmitIcon = 'image_search';
+        currentWelcomeTitle = "Analyze Code from an Image";
+        currentWelcomeText = "Upload a screenshot or photo of code. The AI will extract the text and provide a full analysis.";
+        currentWelcomeIcon = 'image_search';
     } else if (inputMode === 'fileUpload') {
       mainSubmitButtonText = 'Analyze Uploaded Code'; loadingText = 'Analyzing Code...'; mainSubmitIcon = 'analytics';
       currentWelcomeTitle = "Upload & Analyze Code";
@@ -724,7 +917,6 @@ const HomePageInternal: React.FC<HomePageProps> = ({ initialActivity, onBackToDa
                     {isSettingsPanelOpen && (
                         <div id="settings-panel-popover" ref={settingsPanelRef} className="absolute top-full right-0 mt-2 z-[60]" role="dialog" aria-modal="true">
                             <SettingsPanel
-                                onUpdateActivity={onUpdateActivity}
                                 onClearAllActivities={onClearAllActivities}
                             />
                         </div>
@@ -773,10 +965,11 @@ const HomePageInternal: React.FC<HomePageProps> = ({ initialActivity, onBackToDa
                                                     </span>
                                                 </button>
                                             </div>
-                                            <div className="grid grid-cols-2 lg:grid-cols-5 gap-2">
-                                                {(['projectUpload', 'fileUpload', 'conceptTyping', 'pasteCode', 'debugCode'] as InputMode[]).map(mode => {
+                                            <div className="grid grid-cols-3 lg:grid-cols-3 gap-2">
+                                                {(['projectUpload', 'fileUpload', 'imageUpload', 'conceptTyping', 'pasteCode', 'debugCode'] as InputMode[]).map(mode => {
                                                     let icon = 'description'; let label = 'File';
                                                     if (mode === 'projectUpload') { icon = 'folder_zip'; label = 'Project'; }
+                                                    else if (mode === 'imageUpload') { icon = 'image_search'; label = 'Image'; }
                                                     else if (mode === 'conceptTyping') { icon = 'lightbulb'; label = 'Concept'; }
                                                     else if (mode === 'pasteCode') { icon = 'content_paste'; label = 'Paste'; }
                                                     else if (mode === 'debugCode') { icon = 'bug_report'; label = 'Debug'; }
@@ -812,6 +1005,15 @@ const HomePageInternal: React.FC<HomePageProps> = ({ initialActivity, onBackToDa
                                                 selectedLanguage={fileLanguage}
                                                 onLanguageChange={handleFileLanguageChange}
                                                 onSubmit={handleSubmit}
+                                                isLoading={isLoading}
+                                            />
+                                        )}
+                                        
+                                        {inputMode === 'imageUpload' && (
+                                            <ImageUpload
+                                                onFileSelect={handleImageSelect}
+                                                selectedFile={selectedImageFile}
+                                                previewUrl={imagePreviewUrl}
                                                 isLoading={isLoading}
                                             />
                                         )}

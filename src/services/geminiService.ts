@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
 import { 
     AnalysisResult, 
@@ -19,6 +20,14 @@ import {
     DependencyAnalysis,
     DependencyInfo
 } from '../types';
+
+// FIX: Added and exported GeminiRequestConfig interface to be used in HomePage.tsx and within this service.
+export interface GeminiRequestConfig {
+    model: string;
+    temperature: number;
+    topP: number;
+    systemInstruction: string;
+}
 
 const API_KEY = process.env.API_KEY;
 const API_TIMEOUT_MS = 180000; // 180 seconds
@@ -344,7 +353,7 @@ Each object in the array represents one key module and MUST have the following k
 - "modulePath": The full path of the key module file.
 - "description": A concise, one-sentence summary of this module's role in the project.
 - "imports": An array of strings, listing the file paths (within the project) that this module imports or requires.
-- "importedBy": An array of strings, listing the file paths (within the aproject) that import or require this module.
+- "importedBy": An array of strings, listing the file paths (within aproject) that import or require this module.
 
 Focus only on internal project dependencies (local file imports), not external libraries (e.g., 'react', 'express'). If a module has no internal imports or is not imported by any other file, use an empty array [].
 
@@ -423,9 +432,11 @@ Your answer should be plain text, suitable for direct display. Do not use JSON.
 };
 
 
+// FIX: Updated function signature to accept GeminiRequestConfig.
 export const analyzeProjectWithGemini = async (
     files: ProjectFile[],
-    projectName: string
+    projectName: string,
+    config: GeminiRequestConfig
 ): Promise<ProjectAnalysis> => {
     if (!ai) throw new Error("Gemini AI client is not initialized. Ensure API_KEY is set.");
 
@@ -458,11 +469,21 @@ Respond ONLY with the valid JSON object described above.
 `;
 
     try {
+        // FIX: Replaced hardcoded model and temperature with values from the config object.
+        const geminiConfig: any = {
+            responseMimeType: "application/json",
+            temperature: config.temperature,
+            topP: config.topP,
+        };
+        if (config.systemInstruction) {
+            geminiConfig.systemInstruction = config.systemInstruction;
+        }
+        
         const response = await promiseWithTimeout<GenerateContentResponse>(
             ai.models.generateContent({
-                model: "gemini-2.5-flash",
+                model: config.model,
                 contents: prompt,
-                config: { responseMimeType: "application/json", temperature: 0.3 }
+                config: geminiConfig
             }),
             API_TIMEOUT_MS
         );
@@ -653,11 +674,81 @@ ${baseDefinition
     }
 };
 
+// Helper function to convert File to base64 string for multimodal input
+const fileToGenerativePart = async (file: File): Promise<{ inlineData: { data: string; mimeType: string; } }> => {
+    const base64EncodedDataPromise = new Promise<string>((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
+      reader.readAsDataURL(file);
+    });
+    return {
+      inlineData: {
+        data: await base64EncodedDataPromise,
+        mimeType: file.type,
+      },
+    };
+};
+
+export const extractCodeFromImageWithGemini = async (
+    imageFile: File,
+    config: GeminiRequestConfig // Re-use config for consistency
+): Promise<string> => {
+    if (!ai) throw new Error("Gemini AI client is not initialized. Ensure API_KEY is set.");
+    if (!imageFile.type.startsWith("image/")) {
+        throw new Error("Invalid file type. Please upload an image.");
+    }
+
+    const imagePart = await fileToGenerativePart(imageFile);
+
+    const prompt = `
+Analyze the provided image and extract any and all code present within it.
+
+**Instructions:**
+1.  Identify all text that appears to be programming code.
+2.  Return ONLY the raw, extracted code.
+3.  Do NOT include any explanations, introductory text, or markdown formatting (like \`\`\`) around the code. Your entire response should be only the code itself.
+4.  If no code is found, return an empty string.
+`;
+    
+    try {
+        const response = await promiseWithTimeout<GenerateContentResponse>(
+            ai.models.generateContent({
+                model: "gemini-2.5-flash", // This model is good for multimodal tasks
+                contents: { parts: [imagePart, { text: prompt }] },
+                config: {
+                    temperature: 0.1, // Be deterministic
+                }
+            }),
+            API_TIMEOUT_MS
+        );
+        
+        if (!response.text || response.text.trim() === "") {
+             throw new Error("AI could not detect any code in the image. Please try a different image.");
+        }
+        
+        // Sometimes the model still wraps in ```, so we should strip it.
+        let extractedCode = response.text.trim();
+        const fenceRegex = /^```(?:\w+)?\s*\n?(.*?)\n?\s*```$/s;
+        const match = extractedCode.match(fenceRegex);
+        if (match && match[1]) {
+            extractedCode = match[1].trim();
+        }
+
+        return extractedCode;
+
+    } catch (error) {
+        throw handleApiError(error, "Failed to extract code from image. The image may be unclear or an API error occurred.");
+    }
+};
+
+
+// FIX: Updated function signature to accept GeminiRequestConfig.
 export const analyzeCodeWithGemini = async (
     codeContent: string,
     language: SupportedLanguage,
     initialDifficulty: ExampleDifficulty,
-    practiceDifficulty: ExampleDifficulty
+    practiceDifficulty: ExampleDifficulty,
+    config: GeminiRequestConfig
 ): Promise<AnalysisResult> => {
     if (!ai) throw new Error("Gemini AI client is not initialized. Ensure API_KEY is set.");
 
@@ -752,11 +843,21 @@ Respond ONLY with the valid JSON object described above.
     }
 
     try {
+        // FIX: Replaced hardcoded model and temperature with values from the config object.
+        const geminiConfig: any = {
+            responseMimeType: "application/json",
+            temperature: config.temperature,
+            topP: config.topP,
+        };
+        if (config.systemInstruction) {
+            geminiConfig.systemInstruction = config.systemInstruction;
+        }
+
         const response = await promiseWithTimeout<GenerateContentResponse>(
             ai.models.generateContent({
-                model: "gemini-2.5-flash",
+                model: config.model,
                 contents: prompt,
-                config: { responseMimeType: "application/json", temperature: 0.4 }
+                config: geminiConfig
             }),
             API_TIMEOUT_MS
         );
@@ -776,11 +877,13 @@ Respond ONLY with the valid JSON object described above.
     }
 };
 
+// FIX: Updated function signature to accept GeminiRequestConfig.
 export const analyzeConceptWithGemini = async (
     concept: string,
     language: SupportedLanguage,
     initialDifficulty: ExampleDifficulty,
-    practiceDifficulty: ExampleDifficulty
+    practiceDifficulty: ExampleDifficulty,
+    config: GeminiRequestConfig
 ): Promise<AnalysisResult> => {
     if (!ai) throw new Error("Gemini AI client is not initialized. Ensure API_KEY is set.");
     if (language === SupportedLanguage.UNKNOWN) throw new Error("Cannot analyze a concept for an unknown language context.");
@@ -833,11 +936,21 @@ Respond ONLY with the valid JSON object described above.
 `;
 
     try {
+        // FIX: Replaced hardcoded model and temperature with values from the config object.
+        const geminiConfig: any = {
+            responseMimeType: "application/json",
+            temperature: config.temperature,
+            topP: config.topP,
+        };
+        if (config.systemInstruction) {
+            geminiConfig.systemInstruction = config.systemInstruction;
+        }
+
         const response = await promiseWithTimeout<GenerateContentResponse>(
             ai.models.generateContent({
-                model: "gemini-2.5-flash",
+                model: config.model,
                 contents: prompt,
-                config: { responseMimeType: "application/json", temperature: 0.45 }
+                config: geminiConfig
             }),
             API_TIMEOUT_MS
         );
@@ -1181,9 +1294,11 @@ ${code}
     }
 };
 
+// FIX: Updated function signature to accept GeminiRequestConfig.
 export const debugCodeWithGemini = async (
     brokenCode: string,
-    language: SupportedLanguage
+    language: SupportedLanguage,
+    config: GeminiRequestConfig
 ): Promise<DebugResult> => {
     if (!ai) throw new Error("Gemini AI client is not initialized. Ensure API_KEY is set.");
 
@@ -1239,11 +1354,21 @@ Respond ONLY with the valid JSON object described above.
     };
 
     try {
+        // FIX: Replaced hardcoded model and temperature with values from the config object.
+        const geminiConfig: any = {
+            responseMimeType: "application/json",
+            temperature: config.temperature,
+            topP: config.topP,
+        };
+        if (config.systemInstruction) {
+            geminiConfig.systemInstruction = config.systemInstruction;
+        }
+
         const response = await promiseWithTimeout<GenerateContentResponse>(
             ai.models.generateContent({
-                model: "gemini-2.5-flash",
+                model: config.model,
                 contents: prompt,
-                config: { responseMimeType: "application/json", temperature: 0.2 } // Low temp for factual debugging
+                config: geminiConfig
             }),
             API_TIMEOUT_MS
         );

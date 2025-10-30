@@ -1,12 +1,13 @@
 
 import { useState, useEffect, useCallback } from 'react';
-import { ExampleDifficulty, GlobalSettings, TopicExplanationVisibility } from '../types';
+import { toast } from 'react-hot-toast';
+import { ExampleDifficulty, GlobalSettings, TopicExplanationVisibility, FontSize, FontFamily, CodeFontFamily, AiModel } from '../types';
 
 const GLOBAL_SETTINGS_KEY = 'codeTutorGlobalSettings';
 
 const defaultSettings: GlobalSettings = {
+    // General
     preferredInitialDifficulty: 'easy',
-    isLeftPanelCollapsed: false,
     preferredInstructionFormat: 'normal',
     defaultPracticeDifficulty: 'intermediate',
     visibleSections: {
@@ -21,7 +22,51 @@ const defaultSettings: GlobalSettings = {
         exampleCode: true,
         practiceQuestion: true,
         instructionsToSolve: true,
+    },
+    // AI Behavior
+    preferredModel: 'auto',
+    customSystemInstruction: '',
+    temperature: 0.4,
+    topP: 0.95,
+    // Interface
+    fontSize: 'base',
+    fontFamily: 'inter',
+    codeFontFamily: 'fira-code',
+    reduceMotion: false,
+    // System
+    isLeftPanelCollapsed: false,
+};
+
+// Helper to safely merge loaded settings with defaults
+const mergeSettings = (loaded: any): GlobalSettings => {
+    const merged = { ...defaultSettings };
+    for (const key of Object.keys(defaultSettings) as Array<keyof GlobalSettings>) {
+        if (loaded && typeof loaded[key] !== 'undefined') {
+            if (key === 'visibleSections') {
+                // Deep merge for visibleSections
+                const loadedVS = loaded.visibleSections || {};
+                const defaultVS = defaultSettings.visibleSections;
+                const topicExplanationSettings = (typeof loadedVS.topicExplanation === 'object' && loadedVS.topicExplanation !== null)
+                    ? { ...defaultVS.topicExplanation, ...loadedVS.topicExplanation }
+                    : defaultVS.topicExplanation;
+                
+                merged.visibleSections = {
+                    ...defaultVS,
+                    ...loadedVS,
+                    topicExplanation: topicExplanationSettings
+                };
+            } else if (key !== 'temperature' && key !== 'topP' && loaded[key] !== null) {
+                // Standard merge for other properties, excluding nulls unless it's for temp/topP
+                (merged as any)[key] = loaded[key];
+            } else if (key === 'temperature' || key === 'topP') {
+                // Specifically allow 0 for temp/topP
+                if (typeof loaded[key] === 'number') {
+                     (merged as any)[key] = loaded[key];
+                }
+            }
+        }
     }
+    return merged;
 };
 
 export const useGlobalSettings = () => {
@@ -29,46 +74,7 @@ export const useGlobalSettings = () => {
         try {
             const storedSettings = localStorage.getItem(GLOBAL_SETTINGS_KEY);
             if (storedSettings) {
-                const parsed = JSON.parse(storedSettings) as Partial<GlobalSettings> & { visibleSections?: Partial<GlobalSettings['visibleSections']> & { topicExplanation?: boolean | Partial<TopicExplanationVisibility>, followUp?: boolean } };
-                
-                const loadedVisibleSections = parsed.visibleSections || {};
-                const defaultVisibleSections = defaultSettings.visibleSections;
-
-                // Handle backward compatibility for topicExplanation and followUp
-                let topicExplanationSettings: TopicExplanationVisibility;
-                if ('topicExplanation' in loadedVisibleSections && typeof loadedVisibleSections.topicExplanation === 'object' && loadedVisibleSections.topicExplanation !== null) {
-                    topicExplanationSettings = { ...defaultVisibleSections.topicExplanation, ...loadedVisibleSections.topicExplanation };
-                } else {
-                    const masterState = 'topicExplanation' in loadedVisibleSections && typeof loadedVisibleSections.topicExplanation === 'boolean' ? loadedVisibleSections.topicExplanation : true;
-                    topicExplanationSettings = {
-                        masterToggle: masterState,
-                        coreConcepts: masterState,
-                        blockByBlock: masterState,
-                        lineByLine: masterState,
-                        executionFlow: masterState,
-                        followUp: 'followUp' in loadedVisibleSections && typeof loadedVisibleSections.followUp === 'boolean' ? loadedVisibleSections.followUp : masterState,
-                    };
-                }
-
-                return {
-                    preferredInitialDifficulty: parsed.preferredInitialDifficulty && ['easy', 'intermediate', 'hard'].includes(parsed.preferredInitialDifficulty)
-                        ? parsed.preferredInitialDifficulty
-                        : defaultSettings.preferredInitialDifficulty,
-                    isLeftPanelCollapsed: typeof parsed.isLeftPanelCollapsed === 'boolean'
-                        ? parsed.isLeftPanelCollapsed
-                        : defaultSettings.isLeftPanelCollapsed,
-                    preferredInstructionFormat: parsed.preferredInstructionFormat && ['normal', 'line-by-line'].includes(parsed.preferredInstructionFormat)
-                        ? parsed.preferredInstructionFormat
-                        : defaultSettings.preferredInstructionFormat,
-                    defaultPracticeDifficulty: parsed.defaultPracticeDifficulty && ['easy', 'intermediate', 'hard'].includes(parsed.defaultPracticeDifficulty)
-                        ? parsed.defaultPracticeDifficulty
-                        : defaultSettings.defaultPracticeDifficulty,
-                    visibleSections: {
-                        ...defaultVisibleSections,
-                        ...loadedVisibleSections,
-                        topicExplanation: topicExplanationSettings,
-                    }
-                };
+                return mergeSettings(JSON.parse(storedSettings));
             }
         } catch (error) {
             console.error("Error loading settings from localStorage:", error);
@@ -76,36 +82,46 @@ export const useGlobalSettings = () => {
         return defaultSettings;
     });
 
+    // Effect to apply settings to the DOM and save to localStorage
     useEffect(() => {
         try {
+            // Apply DOM settings
+            const body = document.body;
+            body.dataset.fontSize = settings.fontSize;
+            body.dataset.fontFamily = settings.fontFamily;
+            body.dataset.codeFontFamily = settings.codeFontFamily;
+            body.dataset.reduceMotion = String(settings.reduceMotion);
+
+            // Save to localStorage
             localStorage.setItem(GLOBAL_SETTINGS_KEY, JSON.stringify(settings));
         } catch (error) {
-            console.error("Error saving settings to localStorage:", error);
+            console.error("Error saving settings to localStorage or applying to DOM:", error);
         }
     }, [settings]);
 
-    const setPreferredInitialDifficulty = useCallback((difficulty: ExampleDifficulty) => {
-        setSettings(prev => ({ ...prev, preferredInitialDifficulty: difficulty }));
-    }, []);
+    const setPreferredInitialDifficulty = useCallback((difficulty: ExampleDifficulty) => setSettings(p => ({ ...p, preferredInitialDifficulty: difficulty })), []);
+    const setIsLeftPanelCollapsed = useCallback((isCollapsed: boolean) => setSettings(p => ({ ...p, isLeftPanelCollapsed: isCollapsed })), []);
+    const setPreferredInstructionFormat = useCallback((format: 'normal' | 'line-by-line') => setSettings(p => ({ ...p, preferredInstructionFormat: format })), []);
+    const setDefaultPracticeDifficulty = useCallback((difficulty: ExampleDifficulty) => setSettings(p => ({ ...p, defaultPracticeDifficulty: difficulty })), []);
+    
+    // New setters for AI Behavior
+    const setPreferredModel = useCallback((model: AiModel) => setSettings(p => ({ ...p, preferredModel: model })), []);
+    const setCustomSystemInstruction = useCallback((instruction: string) => setSettings(p => ({ ...p, customSystemInstruction: instruction })), []);
+    const setTemperature = useCallback((temp: number) => setSettings(p => ({ ...p, temperature: temp })), []);
+    const setTopP = useCallback((topP: number) => setSettings(p => ({ ...p, topP: topP })), []);
 
-    const setIsLeftPanelCollapsed = useCallback((isCollapsed: boolean) => {
-        setSettings(prev => ({ ...prev, isLeftPanelCollapsed: isCollapsed }));
-    }, []);
+    // New setters for Interface
+    const setFontSize = useCallback((size: FontSize) => setSettings(p => ({ ...p, fontSize: size })), []);
+    const setFontFamily = useCallback((family: FontFamily) => setSettings(p => ({ ...p, fontFamily: family })), []);
+    const setCodeFontFamily = useCallback((family: CodeFontFamily) => setSettings(p => ({ ...p, codeFontFamily: family })), []);
+    const setReduceMotion = useCallback((reduce: boolean) => setSettings(p => ({ ...p, reduceMotion: reduce })), []);
 
-    const setPreferredInstructionFormat = useCallback((format: 'normal' | 'line-by-line') => {
-        setSettings(prev => ({ ...prev, preferredInstructionFormat: format }));
-    }, []);
-
-    const setDefaultPracticeDifficulty = useCallback((difficulty: ExampleDifficulty) => {
-        setSettings(prev => ({ ...prev, defaultPracticeDifficulty: difficulty }));
-    }, []);
 
     const toggleVisibility = useCallback((key: keyof GlobalSettings['visibleSections'] | keyof TopicExplanationVisibility, isTopicSubSection: boolean = false) => {
         setSettings(prev => {
             const newVisibleSections = { ...prev.visibleSections };
 
             if (key === 'topicExplanation' && !isTopicSubSection) {
-                // Handle master toggle
                 const topicSettings = { ...newVisibleSections.topicExplanation };
                 const newMasterState = !topicSettings.masterToggle;
                 Object.keys(topicSettings).forEach(subKey => {
@@ -113,17 +129,12 @@ export const useGlobalSettings = () => {
                 });
                 newVisibleSections.topicExplanation = topicSettings;
             } else if (isTopicSubSection) {
-                // Handle sub-section toggle
                 const topicSettings = { ...newVisibleSections.topicExplanation };
                 topicSettings[key as keyof TopicExplanationVisibility] = !topicSettings[key as keyof TopicExplanationVisibility];
-
                 const { masterToggle, ...children } = topicSettings;
-                const anyChildOn = Object.values(children).some(v => v);
-                topicSettings.masterToggle = anyChildOn;
-
+                topicSettings.masterToggle = Object.values(children).some(v => v);
                 newVisibleSections.topicExplanation = topicSettings;
             } else {
-                 // Handle other top-level toggles
                  newVisibleSections[key as keyof Omit<GlobalSettings['visibleSections'], 'topicExplanation'>] = !newVisibleSections[key as keyof Omit<GlobalSettings['visibleSections'], 'topicExplanation'>];
             }
 
@@ -131,13 +142,60 @@ export const useGlobalSettings = () => {
         });
     }, []);
 
+    const resetSettings = useCallback((section?: 'general' | 'ai' | 'interface') => {
+        setSettings(prev => {
+            if (!section) return defaultSettings; // Full reset
+
+            const newSettings = { ...prev };
+            if (section === 'general') {
+                newSettings.preferredInitialDifficulty = defaultSettings.preferredInitialDifficulty;
+                newSettings.defaultPracticeDifficulty = defaultSettings.defaultPracticeDifficulty;
+                newSettings.preferredInstructionFormat = defaultSettings.preferredInstructionFormat;
+                newSettings.visibleSections = defaultSettings.visibleSections;
+            } else if (section === 'ai') {
+                newSettings.preferredModel = defaultSettings.preferredModel;
+                newSettings.customSystemInstruction = defaultSettings.customSystemInstruction;
+                newSettings.temperature = defaultSettings.temperature;
+                newSettings.topP = defaultSettings.topP;
+            } else if (section === 'interface') {
+                newSettings.fontSize = defaultSettings.fontSize;
+                newSettings.fontFamily = defaultSettings.fontFamily;
+                newSettings.codeFontFamily = defaultSettings.codeFontFamily;
+                newSettings.reduceMotion = defaultSettings.reduceMotion;
+            }
+            return newSettings;
+        });
+    }, []);
+
+    const importSettings = useCallback((jsonString: string) => {
+        try {
+            const imported = JSON.parse(jsonString);
+            const validatedAndMerged = mergeSettings(imported);
+            setSettings(validatedAndMerged);
+            toast.success("Settings imported successfully!");
+        } catch (error) {
+            console.error("Failed to import settings:", error);
+            toast.error("Failed to import settings. The file may be invalid.");
+        }
+    }, []);
 
     return {
         ...settings,
+        settings, // Expose the whole settings object
+        importSettings,
+        resetSettings,
         toggleVisibility,
         setPreferredInitialDifficulty,
         setIsLeftPanelCollapsed,
         setPreferredInstructionFormat,
         setDefaultPracticeDifficulty,
+        setPreferredModel,
+        setCustomSystemInstruction,
+        setTemperature,
+        setTopP,
+        setFontSize,
+        setFontFamily,
+        setCodeFontFamily,
+        setReduceMotion,
     };
 };
