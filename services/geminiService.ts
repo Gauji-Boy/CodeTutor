@@ -44,6 +44,25 @@ const analysisResultFieldCheck = (parsed: any): parsed is AnalysisResult => {
            typeof parsed.instructions === 'string';
 };
 
+export const analyzeCodeWithGemini = async (
+    codeContent: string,
+    language: SupportedLanguage
+): Promise<AnalysisResult> => {
+    const topicExplanation = await getTopicExplanation(codeContent, language);
+    const [example, practice] = await Promise.all([
+        getExampleCode(topicExplanation, language),
+        getPractice(topicExplanation, language)
+    ]);
+
+    return {
+        topicExplanation,
+        exampleCode: example.exampleCode,
+        exampleCodeOutput: example.exampleCodeOutput,
+        practiceQuestion: practice.practiceQuestion,
+        instructions: practice.instructions,
+    };
+};
+
 const userSolutionAnalysisFieldCheck = (parsed: any): parsed is UserSolutionAnalysis => {
     return typeof parsed.predictedOutput === 'string' &&
            typeof parsed.feedback === 'string';
