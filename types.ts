@@ -1,10 +1,10 @@
 
 export interface AnalysisResult {
-    topicExplanation: string;
-    exampleCode: string;
-    exampleCodeOutput: string;
-    practiceQuestion: string;
-    instructions: string;
+    topicExplanation?: string;
+    exampleCode?: string;
+    exampleCodeOutput?: string;
+    practiceQuestion?: string;
+    instructions?: string;
 }
 
 export interface UserSolutionAnalysis {

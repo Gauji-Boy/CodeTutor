@@ -16,7 +16,7 @@ import { DebugResultDisplay } from '../components/DebugResultDisplay';
 import { ProjectResultDisplay } from '../components/ProjectResultDisplay';
 import { ProjectUpload } from '../components/ProjectUpload'; // New import
 import { useGlobalSettings } from '../hooks/useGlobalSettings';
-import { analyzeCodeWithGemini, analyzeConceptWithGemini, debugCodeWithGemini, analyzeProjectWithGemini, extractCodeFromImageWithGemini, GeminiRequestConfig } from '../services/geminiService';
+import { getTopicExplanation, getExampleCode, getPractice, analyzeConceptWithGemini, debugCodeWithGemini, analyzeProjectWithGemini, extractCodeFromImageWithGemini, detectLanguage, GeminiRequestConfig } from '../services/geminiService';
 import { escapeHtml } from '../utils/textUtils';
 import {
     AnalysisResult,
@@ -691,42 +691,56 @@ const HomePageInternal: React.FC<HomePageProps> = ({ initialActivity, onBackToDa
             let currentLang: SupportedLanguage | null = null;
             let summary = "";
 
-            if (inputMode === 'imageUpload') {
-                if (!selectedImageFile) throw new Error("Please select an image file.");
-                
-                activityType = 'image_analysis';
-                activityTitle = selectedImageFile.name;
-                activityIcon = 'image_search';
-                activityColor = 'text-cyan-400';
-                
-                toast.loading('Extracting code from image...', { id: 'image-process' });
-                
-                const extractedCode = await extractCodeFromImageWithGemini(selectedImageFile, requestConfig);
-                submittedOriginalInput = extractedCode;
-                setOriginalInputForAnalysis(extractedCode);
-                
-                toast.loading('Analyzing extracted code...', { id: 'image-process' });
+            if (inputMode === 'fileUpload' || inputMode === 'pasteCode' || inputMode === 'imageUpload') {
+                let code: string;
+                let lang: SupportedLanguage | null;
 
-                result = await analyzeCodeWithGemini(extractedCode, LangEnum.UNKNOWN, initialDifficultyForThisAnalysis, practiceDifficultyForThisAnalysis, requestConfig);
-                setAnalysisResult(result);
-                summary = result.topicExplanation.coreConcepts;
-                
-                if (result.detectedLanguage && result.detectedLanguage !== LangEnum.UNKNOWN) {
-                    currentLang = result.detectedLanguage;
-                    toast.success(`Language detected: ${LanguageDisplayNames[currentLang]}.`, { icon: 'ℹ️', id: 'image-process' });
+                if (inputMode === 'imageUpload') {
+                    if (!selectedImageFile) throw new Error("Please select an image file.");
+                    toast.loading('Extracting code from image...', { id: 'image-process' });
+                    code = await extractCodeFromImageWithGemini(selectedImageFile, requestConfig);
+                    submittedOriginalInput = code;
+                    setOriginalInputForAnalysis(code);
+                    toast.loading('Detecting language...', { id: 'image-process' });
+                    lang = await detectLanguage(code);
+                    activityType = 'image_analysis';
+                    activityTitle = selectedImageFile.name;
+                    activityIcon = 'image_search';
+                    activityColor = 'text-cyan-400';
                 } else {
-                    toast.success('Analysis complete!', { id: 'image-process' });
-                    setError("Could not automatically detect language. Analysis may be inaccurate.");
+                    code = inputMode === 'fileUpload' ? codeContent! : pastedCodeText;
+                    lang = inputMode === 'fileUpload' ? fileLanguage : await detectLanguage(code);
+                    activityType = inputMode === 'fileUpload' ? 'file_analysis' : 'paste_analysis';
+                    activityTitle = inputMode === 'fileUpload' ? selectedFile!.name : `Pasted Code: ${code.substring(0, 30)}...`;
+                    activityIcon = inputMode === 'fileUpload' ? 'description' : 'content_paste_search';
+                    activityColor = inputMode === 'fileUpload' ? 'text-indigo-400' : 'text-yellow-500';
                 }
-            } else if (inputMode === 'fileUpload') {
-                if (!codeContent || !fileLanguage || fileLanguage === LangEnum.UNKNOWN || !selectedFile) {
-                    throw new Error("Please select a valid code file and ensure its language is correctly identified.");
+
+                if (lang === LangEnum.UNKNOWN) {
+                    toast.error("Could not automatically detect language. Analysis may be inaccurate.");
+                } else {
+                    toast.success(`Language detected: ${LanguageDisplayNames[lang]}.`, { icon: 'ℹ️' });
                 }
-                currentLang = fileLanguage; submittedOriginalInput = codeContent; activityType = 'file_analysis';
-                activityTitle = selectedFile.name; activityIcon = 'description'; activityColor = 'text-indigo-400';
-                result = await analyzeCodeWithGemini(codeContent, fileLanguage, initialDifficultyForThisAnalysis, practiceDifficultyForThisAnalysis, requestConfig);
+                currentLang = lang;
+
+                // Start incremental loading
+                const topicExplanation = await getTopicExplanation(code, lang);
+                setAnalysisResult({ topicExplanation });
+                summary = topicExplanation;
+                toast.success("Topic explanation loaded!");
+
+                const [example, practice] = await Promise.all([
+                    getExampleCode(topicExplanation, lang),
+                    getPractice(topicExplanation, lang)
+                ]);
+
+                result = {
+                    topicExplanation,
+                    ...example,
+                    ...practice,
+                };
                 setAnalysisResult(result);
-                summary = result.topicExplanation.coreConcepts;
+
             } else if (inputMode === 'conceptTyping') {
                 if (!conceptText.trim() || !conceptLanguage || conceptLanguage === LangEnum.UNKNOWN) {
                     throw new Error("Please enter a programming concept and select a language context.");
@@ -737,20 +751,6 @@ const HomePageInternal: React.FC<HomePageProps> = ({ initialActivity, onBackToDa
                 result = await analyzeConceptWithGemini(conceptText, conceptLanguage, initialDifficultyForThisAnalysis, practiceDifficultyForThisAnalysis, requestConfig);
                 setAnalysisResult(result);
                 summary = result.topicExplanation.coreConcepts;
-            } else if (inputMode === 'pasteCode') {
-                 if (!pastedCodeText.trim()) { throw new Error("Please paste your code to be analyzed."); }
-                currentLang = LangEnum.UNKNOWN; 
-                submittedOriginalInput = pastedCodeText; activityType = 'paste_analysis';
-                activityTitle = `Pasted Code: ${pastedCodeText.substring(0,30)}...`;
-                activityIcon = 'content_paste_search'; activityColor = 'text-yellow-500';
-                result = await analyzeCodeWithGemini(pastedCodeText, LangEnum.UNKNOWN, initialDifficultyForThisAnalysis, practiceDifficultyForThisAnalysis, requestConfig);
-                setAnalysisResult(result);
-                summary = result.topicExplanation.coreConcepts;
-                if(result.detectedLanguage && result.detectedLanguage !== LangEnum.UNKNOWN) {
-                    currentLang = result.detectedLanguage; toast(`Language detected: ${LanguageDisplayNames[currentLang]}.`, { icon: 'ℹ️' });
-                } else {
-                    setError("Could not automatically detect language. Analysis may be inaccurate.");
-                }
             } else if (inputMode === 'debugCode') {
                 if (!debugCodeText.trim()) { throw new Error("Please paste your code to be debugged.");}
                 currentLang = LangEnum.UNKNOWN;
@@ -1133,10 +1133,6 @@ const HomePageInternal: React.FC<HomePageProps> = ({ initialActivity, onBackToDa
                         <ResultDisplay
                             result={analysisResult}
                             language={currentLanguageForAnalysis}
-                            difficultyOfProvidedExample={difficultyForCurrentAnalysis}
-                            initialPracticeDifficulty={practiceDifficultyForCurrentAnalysis}
-                            originalInputContext={originalInputForAnalysis}
-                            originalInputType={inputMode === 'conceptTyping' ? 'concept' : 'code'}
                         />
                     )}
                     

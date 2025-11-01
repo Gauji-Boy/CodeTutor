@@ -51,60 +51,141 @@ const userSolutionAnalysisFieldCheck = (parsed: any): parsed is UserSolutionAnal
 };
 
 
-export const analyzeCodeWithGemini = async (
+export const getTopicExplanation = async (
     codeContent: string,
     language: SupportedLanguage
-): Promise<AnalysisResult> => {
-    if (!ai) {
-        throw new Error("Gemini AI client is not initialized. Check API_KEY configuration.");
-    }
-    if (language === SupportedLanguage.UNKNOWN) {
-        throw new Error("Cannot analyze code for an unknown language.");
-    }
+): Promise<string> => {
+    if (!ai) throw new Error("Gemini AI client not initialized.");
+    if (language === SupportedLanguage.UNKNOWN) throw new Error("Cannot analyze code for an unknown language.");
 
     const languageName = LanguageDisplayNames[language];
-
     const prompt = `
-You are an expert programming tutor. Analyze the following ${languageName} code.
-Provide your analysis in a JSON format with the following exact keys: "topicExplanation", "exampleCode", "exampleCodeOutput", "practiceQuestion", "instructions".
-
-- "topicExplanation": A clear, concise explanation of the main programming concept demonstrated in the uploaded code. This should be a single paragraph.
-- "exampleCode": A simple, self-contained ${languageName} code example illustrating the explained concept. This example must be different from the user's input code and should be ready to compile/run.
-- "exampleCodeOutput": A string representing the exact, expected output if the "exampleCode" were executed. If the example code produces no visible output, this should be an empty string or a concise note like "[No direct output produced by this example]".
-- "practiceQuestion": A programming question related to the explained concept that a learner can solve in ${languageName}.
-- "instructions": Step-by-step instructions on how to approach and solve the practice question. Provide these as a multi-line string, with each step clearly articulated.
+You are an expert programming tutor. Analyze the following ${languageName} code and provide a clear, concise explanation of the main programming concept demonstrated.
+Respond ONLY with the explanation string, without any additional formatting or surrounding text.
 
 User's ${languageName} Code:
 \`\`\`${language}
 ${codeContent}
 \`\`\`
-
-Respond ONLY with the valid JSON object described above, without any additional explanations or surrounding text. Ensure the JSON is well-formed.
 `;
-
     try {
         const response = await ai.models.generateContent({
             model: "gemini-2.5-flash",
             contents: prompt,
-            config: {
-                responseMimeType: "application/json",
-                temperature: 0.4, 
-            }
+            config: { temperature: 0.3 }
         });
-        
-        return parseJsonFromAiResponse<AnalysisResult>(response.text, analysisResultFieldCheck);
-
+        return response.text;
     } catch (error) {
-        console.error("Error calling Gemini API for code analysis:", error);
-        if (error instanceof Error) {
-             if (error.message.includes("API key not valid")) {
-                throw new Error("Invalid API Key. Please check your configuration.");
-            }
-             if (error.message.includes("quota")) {
-                throw new Error("API quota exceeded. Please try again later.");
-            }
+        console.error("Error getting topic explanation from Gemini:", error);
+        throw new Error("Failed to get topic explanation from AI.");
+    }
+};
+
+export const getExampleCode = async (
+    topic: string,
+    language: SupportedLanguage
+): Promise<{ exampleCode: string; exampleCodeOutput: string }> => {
+    if (!ai) throw new Error("Gemini AI client not initialized.");
+    if (language === SupportedLanguage.UNKNOWN) throw new Error("Cannot get example for an unknown language.");
+
+    const languageName = LanguageDisplayNames[language];
+    const prompt = `
+You are an expert programming tutor. Provide a simple, runnable code example for the concept: "${topic}" in ${languageName}.
+Respond in a JSON format with keys "exampleCode" and "exampleCodeOutput".
+
+- "exampleCode": A self-contained ${languageName} code example.
+- "exampleCodeOutput": The exact expected output of the code.
+`;
+    try {
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: prompt,
+            config: { responseMimeType: "application/json", temperature: 0.5 }
+        });
+        return parseJsonFromAiResponse(response.text, (p: any) =>
+            typeof p.exampleCode === 'string' && typeof p.exampleCodeOutput === 'string'
+        );
+    } catch (error) {
+        console.error("Error getting example code from Gemini:", error);
+        throw new Error("Failed to get example code from AI.");
+    }
+};
+
+export const getPractice = async (
+    topic: string,
+    language: SupportedLanguage
+): Promise<{ practiceQuestion: string; instructions: string }> => {
+    if (!ai) throw new Error("Gemini AI client not initialized.");
+    if (language === SupportedLanguage.UNKNOWN) throw new Error("Cannot get practice for an unknown language.");
+
+    const languageName = LanguageDisplayNames[language];
+    const prompt = `
+You are an expert programming tutor. Create a practice question for the concept: "${topic}" in ${languageName}.
+Respond in a JSON format with keys "practiceQuestion" and "instructions".
+
+- "practiceQuestion": A programming question for a learner.
+- "instructions": Step-by-step instructions to solve the question.
+`;
+    try {
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: prompt,
+            config: { responseMimeType: "application/json", temperature: 0.6 }
+        });
+        return parseJsonFromAiResponse(response.text, (p: any) =>
+            typeof p.practiceQuestion === 'string' && typeof p.instructions === 'string'
+        );
+    } catch (error) {
+        console.error("Error getting practice question from Gemini:", error);
+        throw new Error("Failed to get practice question from AI.");
+    }
+};
+
+export const analyzeCodeWithGemini = async (
+    codeContent: string,
+    language: SupportedLanguage
+): Promise<AnalysisResult> => {
+    const topicExplanation = await getTopicExplanation(codeContent, language);
+    const [example, practice] = await Promise.all([
+        getExampleCode(topicExplanation, language),
+        getPractice(topicExplanation, language)
+    ]);
+
+    return {
+        topicExplanation,
+        exampleCode: example.exampleCode,
+        exampleCodeOutput: example.exampleCodeOutput,
+        practiceQuestion: practice.practiceQuestion,
+        instructions: practice.instructions,
+    };
+};
+
+export const detectLanguage = async (codeContent: string): Promise<SupportedLanguage> => {
+    if (!ai) throw new Error("Gemini AI client not initialized.");
+
+    const prompt = `
+You are an expert programming language detector. Analyze the following code snippet and identify the programming language.
+Respond ONLY with the single word for the language, from the following options: ${Object.values(SupportedLanguage).join(', ')}.
+
+Code:
+\`\`\`
+${codeContent}
+\`\`\`
+`;
+    try {
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: prompt,
+            config: { temperature: 0.1 }
+        });
+        const lang = response.text.trim() as SupportedLanguage;
+        if (Object.values(SupportedLanguage).includes(lang)) {
+            return lang;
         }
-        throw new Error("Failed to get analysis from AI. Please try again.");
+        return SupportedLanguage.UNKNOWN;
+    } catch (error) {
+        console.error("Error detecting language from Gemini:", error);
+        return SupportedLanguage.UNKNOWN;
     }
 };
 
