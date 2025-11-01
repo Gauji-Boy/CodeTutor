@@ -249,3 +249,39 @@ Respond ONLY with the valid JSON object described above, without any additional 
         throw new Error("Failed to get feedback from AI for your solution. Please try again.");
     }
 };
+
+// Functions below are not exported and are used internally
+async function analyzeConceptWithGemini(conceptText: string, conceptLanguage: SupportedLanguage, initialDifficultyForThisAnalysis: any, practiceDifficultyForThisAnalysis: any, requestConfig: any): Promise<AnalysisResult> {
+    if (!ai) throw new Error("Gemini AI client not initialized.");
+    // This is a mock implementation. Replace with your actual implementation.
+    return {
+        topicExplanation: "Explanation for " + conceptText,
+        exampleCode: "Example code for " + conceptText,
+        exampleCodeOutput: "Output for " + conceptText,
+        practiceQuestion: "Practice question for " + conceptText,
+        instructions: "Instructions for " + conceptText,
+    };
+}
+
+async function debugCodeWithGemini(debugCodeText: string, param2: any, requestConfig: any): Promise<any> {
+    if (!ai) throw new Error("Gemini AI client not initialized.");
+    // This is a mock implementation. Replace with your actual implementation.
+    return {
+        summary: "Summary of debug",
+        detectedLanguage: SupportedLanguage.PYTHON,
+    };
+}
+
+async function analyzeProjectWithGemini(currentProjectFiles: any, currentProjectName: any, requestConfig: any): Promise<any> {
+    if (!ai) throw new Error("Gemini AI client not initialized.");
+    // This is a mock implementation. Replace with your actual implementation.
+    return {
+        overview: "Overview of project",
+    };
+}
+
+async function extractCodeFromImageWithGemini(selectedImageFile: any, requestConfig: any): Promise<string> {
+    if (!ai) throw new Error("Gemini AI client not initialized.");
+    // This is a mock implementation. Replace with your actual implementation.
+    return "Code from image";
+}
