@@ -1,4 +1,3 @@
-
 import React from 'react';
 
 interface ImageUploadProps {
@@ -24,7 +23,7 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
 
     const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
         event.preventDefault(); event.stopPropagation(); if (isLoading) return;
-        event.currentTarget.classList.remove('border-indigo-500', 'bg-gray-700/30');
+        event.currentTarget.classList.remove('border-[var(--accent-primary)]', 'bg-[var(--bg-tertiary)]/50');
         if (event.dataTransfer.files && event.dataTransfer.files[0]) {
             if (event.dataTransfer.files[0].type.startsWith('image/')) {
                 onFileSelect(event.dataTransfer.files[0]);
@@ -34,22 +33,22 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
 
     const handleDragOver = (event: React.DragEvent<HTMLDivElement>) => {
         event.preventDefault(); event.stopPropagation(); if (isLoading) return;
-        event.currentTarget.classList.add('border-indigo-500', 'bg-gray-700/30');
+        event.currentTarget.classList.add('border-[var(--accent-primary)]', 'bg-[var(--bg-tertiary)]/50');
     };
 
     const handleDragLeave = (event: React.DragEvent<HTMLDivElement>) => {
         event.preventDefault(); event.stopPropagation();
-        event.currentTarget.classList.remove('border-indigo-500', 'bg-gray-700/30');
+        event.currentTarget.classList.remove('border-[var(--accent-primary)]', 'bg-[var(--bg-tertiary)]/50');
     };
 
     const fileInputId = 'image-upload-input-main';
 
     return (
-        <div className="flex flex-col space-y-3 pt-3 border-t border-gray-700/70">
+        <div className="flex flex-col space-y-3 pt-3 border-t border-[var(--border-color)]">
             <div>
-                <h3 className="text-sm sm:text-base font-medium text-white mb-2">Upload Image with Code</h3>
+                <h3 className="text-sm sm:text-base font-medium text-[var(--text-primary)] mb-2">Upload Image with Code</h3>
                 <div 
-                    className={`border-2 border-dashed ${selectedFile ? 'border-indigo-500' : 'border-gray-600'} rounded-lg p-4 flex flex-col items-center justify-center text-center mb-2 hover:border-indigo-400 transition-colors cursor-pointer min-h-[160px] bg-transparent hover:bg-gray-700/20`}
+                    className={`border-2 border-dashed ${selectedFile ? 'border-[var(--accent-primary)]' : 'border-[var(--border-color)]'} rounded-lg p-4 flex flex-col items-center justify-center text-center mb-2 hover:border-[var(--accent-primary)] transition-colors cursor-pointer min-h-[160px] bg-transparent hover:bg-[var(--bg-tertiary)]/40`}
                     onClick={() => !isLoading && document.getElementById(fileInputId)?.click()}
                     onDrop={handleDrop}
                     onDragOver={handleDragOver}
@@ -59,18 +58,18 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
                         <img src={previewUrl} alt="Code preview" className="max-h-32 w-auto object-contain rounded-md" />
                     ) : (
                         <>
-                            <span className="material-icons-outlined text-4xl mb-2 text-gray-500">image</span>
-                            <p className="text-gray-300 text-sm mb-1">
-                                <span className="text-indigo-400 font-medium">Choose Image</span> or drag and drop
+                            <span className="material-icons-outlined text-4xl mb-2 text-[var(--text-muted)]">image</span>
+                            <p className="text-[var(--text-secondary)] text-sm mb-1">
+                                <span className="text-[var(--accent-primary)] font-medium">Choose Image</span> or drag and drop
                             </p>
-                            <p className="text-xs text-gray-500">PNG, JPG, WEBP, GIF</p>
+                            <p className="text-xs text-[var(--text-muted)]">PNG, JPG, WEBP, GIF</p>
                         </>
                     )}
                     <input id={fileInputId} type="file" className="sr-only" onChange={handleFileChange} accept={AcceptedImageExtensions} disabled={isLoading} />
                 </div>
                 {selectedFile && (
-                    <div className="mt-1 p-1.5 bg-gray-700/40 rounded-md border border-gray-600/50 text-xs">
-                        <p className="text-gray-300 truncate">Selected: <span className="font-medium text-indigo-400">{selectedFile.name}</span></p>
+                    <div className="mt-1 p-1.5 bg-[var(--bg-tertiary)]/60 rounded-md border border-[var(--border-color)] text-xs">
+                        <p className="text-[var(--text-secondary)] truncate">Selected: <span className="font-medium text-[var(--accent-primary)]">{selectedFile.name}</span></p>
                     </div>
                 )}
             </div>

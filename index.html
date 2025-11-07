@@ -4,15 +4,65 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>CodeTutor AI - Dashboard</title>
+    
+    <script>
+        // Immediately-invoked function to apply theme from localStorage and prevent flashing
+        (function() {
+          const GLOBAL_SETTINGS_KEY = 'codeTutorGlobalSettings';
+          const defaultTheme = 'dark';
+          const defaultAccent = 'indigo';
+          const themeOptions = ['dark', 'light', 'black', 'slate', 'rose', 'nord', 'solarized-light', 'gruvbox-dark'];
+
+          try {
+            const storedSettings = localStorage.getItem(GLOBAL_SETTINGS_KEY);
+            let theme = defaultTheme;
+            let accent = defaultAccent;
+
+            if (storedSettings) {
+              const settings = JSON.parse(storedSettings);
+              theme = settings.theme || defaultTheme;
+              accent = settings.accentColor || defaultAccent;
+            }
+
+            const root = document.documentElement;
+            themeOptions.forEach(t => root.classList.remove(t)); // Clear any potential lingering classes
+            root.classList.add(theme);
+            root.dataset.accentColor = accent;
+            
+          } catch (e) {
+            console.error('Error applying initial theme from localStorage:', e);
+            // Fallback to defaults in case of an error
+            const root = document.documentElement;
+            root.classList.add(defaultTheme);
+            root.dataset.accentColor = defaultAccent;
+          }
+        })();
+    </script>
+
     <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries,typography"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Lexend:wght@400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Lexend:wght@400;500;600;700&family=Fira+Code:wght@400;500&family=Roboto+Slab:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons|Material+Icons+Outlined" rel="stylesheet" />
     
-    <!-- Prism.js Theme (Okaidia is a good dark theme base) -->
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-okaidia.min.css" rel="stylesheet" />
+    <!-- Prism.js is loaded via JS now, no theme link needed here -->
 
     <style type="text/tailwindcss">
         :root {
+            /* Shared variables - Accent color is now defined per theme below */
+        }
+        
+        /* Accent Color Themes */
+        html[data-accent-color="indigo"] { --accent-primary: #4f46e5; --accent-primary-hover: #4338ca; } /* indigo-600, indigo-700 */
+        html[data-accent-color="sky"] { --accent-primary: #0ea5e9; --accent-primary-hover: #0284c7; } /* sky-500, sky-600 */
+        html[data-accent-color="rose"] { --accent-primary: #f43f5e; --accent-primary-hover: #e11d48; } /* rose-500, rose-600 */
+        html[data-accent-color="emerald"] { --accent-primary: #10b981; --accent-primary-hover: #059669; } /* emerald-500, emerald-600 */
+        html[data-accent-color="amber"] { --accent-primary: #f59e0b; --accent-primary-hover: #d97706; } /* amber-500, amber-600 */
+        html[data-accent-color="slate"] { --accent-primary: #64748b; --accent-primary-hover: #475569; } /* slate-500, slate-600 */
+        html[data-accent-color="fuchsia"] { --accent-primary: #d946ef; --accent-primary-hover: #c026d3; } /* fuchsia-500, fuchsia-600 */
+        html[data-accent-color="teal"] { --accent-primary: #14b8a6; --accent-primary-hover: #0d9488; } /* teal-500, teal-600 */
+
+
+        /* --- Dark Theme --- */
+        .dark {
             --bg-primary: #0A0F19; /* A darker, richer blue-gray */
             --bg-secondary: #111827; /* gray-900 */
             --bg-tertiary: #1F2937; /* gray-800 */
@@ -20,9 +70,242 @@
             --text-primary: #F3F4F6; /* gray-100 */
             --text-secondary: #9CA3AF; /* gray-400 */
             --text-muted: #6B7280; /* gray-500 */
-            --accent-primary: #4f46e5; /* indigo-600 */
-            --accent-primary-hover: #4338ca; /* indigo-700 */
+            
+            --scrollbar-track: var(--bg-secondary);
+            --scrollbar-thumb: var(--accent-primary);
+            --scrollbar-thumb-hover: var(--accent-primary-hover);
+            
+            --scrollbar-small-track: var(--bg-primary);
+            --scrollbar-small-thumb: var(--bg-tertiary);
+            --scrollbar-small-thumb-hover: var(--text-muted);
+            --scrollbar-small-border: var(--bg-primary);
+
+            /* Prism Syntax Highlighting */
+            --prism-comment: #8F9EB3;
+            --prism-punctuation: #A7B3C2;
+            --prism-property: #FF7B72;
+            --prism-boolean-number: #d8b4fe;
+            --prism-string: #A6E22E;
+            --prism-operator: #66D9EF;
+            --prism-function: #A6E22E;
+            --prism-keyword: #66D9EF;
+            --prism-regex: #FD971F;
         }
+
+        /* --- Light Theme --- */
+        .light {
+            --bg-primary: #F9FAFB; /* gray-50 */
+            --bg-secondary: #FFFFFF; /* white */
+            --bg-tertiary: #F3F4F6; /* gray-100 */
+            --border-color: #E5E7EB; /* gray-200 */
+            --text-primary: #111827; /* gray-900 */
+            --text-secondary: #4B5563; /* gray-600 */
+            --text-muted: #6B7280; /* gray-500 */
+
+            --scrollbar-track: #e5e7eb;
+            --scrollbar-thumb: var(--accent-primary);
+            --scrollbar-thumb-hover: var(--accent-primary-hover);
+            
+            --scrollbar-small-track: #f9fafb;
+            --scrollbar-small-thumb: #d1d5db;
+            --scrollbar-small-thumb-hover: #9ca3af;
+            --scrollbar-small-border: #f9fafb;
+
+            /* Prism Syntax Highlighting (based on Prism's default light theme) */
+            --prism-comment: #708090;
+            --prism-punctuation: #999;
+            --prism-property: #905;
+            --prism-boolean-number: #905;
+            --prism-string: #690;
+            --prism-operator: #a67f59;
+            --prism-function: #DD4A68;
+            --prism-keyword: #07a;
+            --prism-regex: #e90;
+        }
+        
+        /* --- Black Theme --- */
+        .black {
+            --bg-primary: #000000;
+            --bg-secondary: #111111;
+            --bg-tertiary: #1F1F1F;
+            --border-color: #2a2a2a;
+            --text-primary: #EAEAEA;
+            --text-secondary: #999999;
+            --text-muted: #666666;
+            
+            --scrollbar-track: var(--bg-secondary);
+            --scrollbar-thumb: var(--accent-primary);
+            --scrollbar-thumb-hover: var(--accent-primary-hover);
+            
+            --scrollbar-small-track: var(--bg-primary);
+            --scrollbar-small-thumb: var(--bg-tertiary);
+            --scrollbar-small-thumb-hover: var(--text-muted);
+            --scrollbar-small-border: var(--bg-primary);
+
+            --prism-comment: #777;
+            --prism-punctuation: #ccc;
+            --prism-property: #e2777a;
+            --prism-boolean-number: #cf95e4;
+            --prism-string: #b5e853;
+            --prism-operator: #67cdcc;
+            --prism-function: #b5e853;
+            --prism-keyword: #67cdcc;
+            --prism-regex: #e90;
+        }
+
+        /* --- Slate Theme --- */
+        .slate {
+            --bg-primary: #0f172a; /* slate-900 */
+            --bg-secondary: #1e293b; /* slate-800 */
+            --bg-tertiary: #334155; /* slate-700 */
+            --border-color: #475569; /* slate-600 */
+            --text-primary: #f1f5f9; /* slate-100 */
+            --text-secondary: #94a3b8; /* slate-400 */
+            --text-muted: #64748b; /* slate-500 */
+            
+            --scrollbar-track: var(--bg-secondary);
+            --scrollbar-thumb: var(--accent-primary);
+            --scrollbar-thumb-hover: var(--accent-primary-hover);
+            
+            --scrollbar-small-track: var(--bg-primary);
+            --scrollbar-small-thumb: var(--bg-tertiary);
+            --scrollbar-small-thumb-hover: var(--text-muted);
+            --scrollbar-small-border: var(--bg-primary);
+
+            --prism-comment: #94a3b8;
+            --prism-punctuation: #cbd5e1;
+            --prism-property: #fb7185; /* rose-400 */
+            --prism-boolean-number: #c084fc; /* purple-400 */
+            --prism-string: #a3e635; /* lime-400 */
+            --prism-operator: #67e8f9; /* cyan-300 */
+            --prism-function: #a3e635;
+            --prism-keyword: #67e8f9;
+            --prism-regex: #f97316; /* orange-500 */
+        }
+        
+         /* --- Rose Theme --- */
+        .rose {
+            --bg-primary: #1c1115;
+            --bg-secondary: #2d1c23;
+            --bg-tertiary: #4f2d3a;
+            --border-color: #6b3d4f;
+            --text-primary: #fee2e2; /* rose-50 */
+            --text-secondary: #fca5a5; /* rose-300 */
+            --text-muted: #f87171; /* rose-400 */
+            
+            --scrollbar-track: var(--bg-secondary);
+            --scrollbar-thumb: var(--accent-primary);
+            --scrollbar-thumb-hover: var(--accent-primary-hover);
+            
+            --scrollbar-small-track: var(--bg-primary);
+            --scrollbar-small-thumb: var(--bg-tertiary);
+            --scrollbar-small-thumb-hover: var(--text-muted);
+            --scrollbar-small-border: var(--bg-primary);
+
+            --prism-comment: #f87171;
+            --prism-punctuation: #fca5a5;
+            --prism-property: #a5f3fc; /* cyan-200 */
+            --prism-boolean-number: #d8b4fe; /* purple-300 */
+            --prism-string: #bef264; /* lime-300 */
+            --prism-operator: #fca5a5;
+            --prism-function: #bef264;
+            --prism-keyword: #a5f3fc;
+            --prism-regex: #fdba74; /* orange-300 */
+        }
+
+        /* --- Nord Theme --- */
+        .nord {
+            --bg-primary: #2E3440;
+            --bg-secondary: #3B4252;
+            --bg-tertiary: #434C5E;
+            --border-color: #4C566A;
+            --text-primary: #ECEFF4;
+            --text-secondary: #D8DEE9;
+            --text-muted: #A3B2CC;
+            
+            --scrollbar-track: var(--bg-secondary);
+            --scrollbar-thumb: var(--accent-primary);
+            --scrollbar-thumb-hover: var(--accent-primary-hover);
+            
+            --scrollbar-small-track: var(--bg-primary);
+            --scrollbar-small-thumb: var(--bg-tertiary);
+            --scrollbar-small-thumb-hover: var(--text-muted);
+            --scrollbar-small-border: var(--bg-primary);
+
+            /* Prism Syntax Highlighting (Nord colors) */
+            --prism-comment: #616E88;
+            --prism-punctuation: #ECEFF4;
+            --prism-property: #8FBCBB;
+            --prism-boolean-number: #B48EAD;
+            --prism-string: #A3BE8C;
+            --prism-operator: #5E81AC;
+            --prism-function: #88C0D0;
+            --prism-keyword: #81A1C1;
+            --prism-regex: #EBCB8B;
+        }
+
+        /* --- Solarized Light Theme --- */
+        .solarized-light {
+            --bg-primary: #fdf6e3;
+            --bg-secondary: #eee8d5;
+            --bg-tertiary: #f5f0e1;
+            --border-color: #dcd7c8;
+            --text-primary: #586e75;
+            --text-secondary: #657b83;
+            --text-muted: #93a1a1;
+            
+            --scrollbar-track: var(--bg-secondary);
+            --scrollbar-thumb: var(--accent-primary);
+            --scrollbar-thumb-hover: var(--accent-primary-hover);
+            
+            --scrollbar-small-track: var(--bg-primary);
+            --scrollbar-small-thumb: #d1cbc0;
+            --scrollbar-small-thumb-hover: var(--text-muted);
+            --scrollbar-small-border: var(--bg-primary);
+
+            /* Prism Syntax Highlighting (Solarized colors) */
+            --prism-comment: #93a1a1;
+            --prism-punctuation: #586e75;
+            --prism-property: #268bd2;
+            --prism-boolean-number: #d33682;
+            --prism-string: #859900;
+            --prism-operator: #6c71c4;
+            --prism-function: #2aa198;
+            --prism-keyword: #cb4b16;
+            --prism-regex: #dc322f;
+        }
+        
+        /* --- Gruvbox Dark Theme --- */
+        .gruvbox-dark {
+            --bg-primary: #282828;
+            --bg-secondary: #3c3836;
+            --bg-tertiary: #504945;
+            --border-color: #665c54;
+            --text-primary: #ebdbb2;
+            --text-secondary: #d5c4a1;
+            --text-muted: #a89984;
+            
+            --scrollbar-track: var(--bg-secondary);
+            --scrollbar-thumb: var(--accent-primary);
+            --scrollbar-thumb-hover: var(--accent-primary-hover);
+            
+            --scrollbar-small-track: var(--bg-primary);
+            --scrollbar-small-thumb: var(--bg-tertiary);
+            --scrollbar-small-thumb-hover: var(--text-muted);
+            --scrollbar-small-border: var(--bg-primary);
+
+            /* Prism Syntax Highlighting (Gruvbox colors) */
+            --prism-comment: #928374;
+            --prism-punctuation: #ebdbb2;
+            --prism-property: #b8bb26;
+            --prism-boolean-number: #d3869b;
+            --prism-string: #fabd2f;
+            --prism-operator: #fe8019;
+            --prism-function: #8ec07c;
+            --prism-keyword: #fb4934;
+            --prism-regex: #fe8019;
+        }
+
         body {
             font-family: 'Inter', sans-serif;
             background-color: var(--bg-primary);
@@ -32,13 +315,30 @@
             flex-direction: column;
             @apply leading-relaxed;
         }
+        
+        body[data-font-family="inter"] { font-family: 'Inter', sans-serif; }
+        body[data-font-family="lexend"] { font-family: 'Lexend', sans-serif; }
+        body[data-font-family="roboto-slab"] { font-family: 'Roboto Slab', serif; }
+        
+        body[data-font-size="sm"] { @apply text-sm; }
+        body[data-font-size="base"] { @apply text-base; }
+        body[data-font-size="lg"] { @apply text-lg; }
+        
+        body[data-code-font-family="fira-code"] .font-fira-code { font-family: 'Fira Code', monospace; }
+        body[data-code-font-family="jetbrains-mono"] .font-fira-code { font-family: 'JetBrains Mono', monospace; }
+
+        body[data-reduce-motion="true"] * {
+            transition-property: color, background-color, border-color, text-decoration-color, fill, stroke, opacity !important;
+            transition-duration: 0ms !important;
+            animation: none !important;
+        }
+
         #root, .flex-1.flex.flex-col {
             flex-grow: 1;
             display: flex;
             flex-direction: column;
         }
         .font-lexend { font-family: 'Lexend', sans-serif; }
-        .font-fira-code { font-family: 'Fira Code', monospace; }
 
         /* General UI Elements */
         .icon-btn { @apply text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors duration-150; }
@@ -47,43 +347,60 @@
         
         /* Dashboard Page Specific Styles */
         .card { @apply bg-[var(--bg-secondary)] p-6 rounded-xl shadow-lg; }
-        .btn-primary { @apply bg-[var(--accent-primary)] text-white font-semibold py-3 px-6 rounded-lg shadow-md hover:bg-[var(--accent-primary-hover)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-[var(--bg-secondary)] focus:ring-[var(--accent-primary)] transition-colors duration-150 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed; }
-        .btn-secondary { @apply bg-[var(--bg-tertiary)] text-[var(--text-primary)] font-medium py-3 px-5 rounded-lg hover:bg-opacity-80 transition-colors duration-150 flex items-center justify-center; }
-        .input-method-btn { @apply flex flex-col items-center justify-center space-y-1 sm:space-y-1.5 p-4 sm:p-5 rounded-lg bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:bg-opacity-70 hover:text-[var(--text-primary)] transition-all duration-200 ease-in-out transform hover:scale-105 cursor-pointer; }
+        .btn-primary { @apply bg-[var(--accent-primary)] text-white font-semibold py-2.5 px-5 rounded-lg shadow-md hover:bg-[var(--accent-primary-hover)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-[var(--bg-secondary)] focus:ring-[var(--accent-primary)] transition-colors duration-150 flex items-center justify-center disabled:bg-[var(--bg-tertiary)] disabled:text-[var(--text-muted)] disabled:cursor-not-allowed; }
+        .btn-secondary { @apply bg-[var(--bg-tertiary)] text-[var(--text-primary)] font-medium py-2.5 px-5 rounded-lg hover:bg-opacity-80 transition-colors duration-150 flex items-center justify-center; }
+        .input-method-btn { @apply flex flex-col items-center justify-center space-y-1 p-3 text-sm rounded-lg bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:bg-opacity-70 hover:text-[var(--text-primary)] transition-all duration-200 ease-in-out transform hover:scale-105 cursor-pointer; }
         .input-method-btn.active { @apply bg-[var(--accent-primary)] text-white ring-2 ring-offset-2 ring-offset-[var(--bg-primary)] ring-[var(--accent-primary)]; }
-        .input-method-btn .material-icons-outlined { @apply text-3xl; }
+        .input-method-btn .material-icons-outlined { @apply text-2xl; }
 
         /* Global Scrollbar Styles */
         ::-webkit-scrollbar { width: 8px; height: 8px; }
-        ::-webkit-scrollbar-track { background: var(--bg-secondary); }
-        ::-webkit-scrollbar-thumb { background: var(--accent-primary); border-radius: 4px; }
-        ::-webkit-scrollbar-thumb:hover { background: var(--accent-primary-hover); }
+        ::-webkit-scrollbar-track { background: var(--scrollbar-track); }
+        ::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover); }
 
         /* Custom Scrollbar for Components */
         .custom-scrollbar-small::-webkit-scrollbar { width: 6px; height: 6px; }
-        .custom-scrollbar-small::-webkit-scrollbar-track { background: var(--bg-primary); border-radius: 3px; }
-        .custom-scrollbar-small::-webkit-scrollbar-thumb { background: var(--bg-tertiary); border-radius: 3px; border: 1px solid var(--bg-primary); }
-        .custom-scrollbar-small::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+        .custom-scrollbar-small::-webkit-scrollbar-track { background: var(--scrollbar-small-track); border-radius: 3px; }
+        .custom-scrollbar-small::-webkit-scrollbar-thumb { background: var(--scrollbar-small-thumb); border-radius: 3px; border: 1px solid var(--scrollbar-small-border); }
+        .custom-scrollbar-small::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-small-thumb-hover); }
 
         /* Prose styles for rendered markdown/AI text (using @tailwindcss/typography) */
-        .prose-invert {
-          --tw-prose-body: theme('colors.gray.300');
-          --tw-prose-headings: theme('colors.white');
-          --tw-prose-lead: theme('colors.gray.400');
-          --tw-prose-links: theme('colors.indigo.400');
-          --tw-prose-bold: theme('colors.white');
-          --tw-prose-counters: theme('colors.gray.400');
-          --tw-prose-bullets: theme('colors.indigo.500');
-          --tw-prose-hr: theme('colors.gray.700');
-          --tw-prose-quotes: theme('colors.gray.200');
-          --tw-prose-quote-borders: theme('colors.indigo.600');
-          --tw-prose-captions: theme('colors.gray.400');
-          --tw-prose-code: theme('colors.sky.300');
-          --tw-prose-pre-code: theme('colors.gray.300');
-          --tw-prose-pre-bg: #1e293b; /* gray-800 */
-          --tw-prose-th-borders: theme('colors.gray.600');
-          --tw-prose-td-borders: theme('colors.gray.700');
+        html[data-accent-color] .prose-invert, html[data-accent-color] .dark .prose-invert, html[data-accent-color] .black .prose-invert, html[data-accent-color] .slate .prose-invert, html[data-accent-color] .rose .prose-invert, html[data-accent-color] .nord .prose-invert, html[data-accent-color] .gruvbox-dark .prose-invert {
+          --tw-prose-body: var(--text-primary);
+          --tw-prose-headings: var(--text-primary);
+          --tw-prose-lead: var(--text-secondary);
+          --tw-prose-links: var(--accent-primary);
+          --tw-prose-bold: var(--text-primary);
+          --tw-prose-counters: var(--text-secondary);
+          --tw-prose-bullets: var(--accent-primary);
+          --tw-prose-hr: var(--border-color);
+          --tw-prose-quotes: var(--text-primary);
+          --tw-prose-quote-borders: var(--accent-primary);
+          --tw-prose-captions: var(--text-secondary);
+          --tw-prose-code: var(--accent-primary);
+          --tw-prose-pre-code: var(--text-primary);
+          --tw-prose-pre-bg: var(--bg-secondary);
+          --tw-prose-th-borders: var(--border-color);
+          --tw-prose-td-borders: var(--border-color);
         }
+        html[data-accent-color] .light .prose {
+            --tw-prose-body: var(--text-primary);
+            --tw-prose-headings: #111827;
+            --tw-prose-links: var(--accent-primary);
+            --tw-prose-bullets: var(--accent-primary);
+            --tw-prose-quote-borders: var(--accent-primary);
+            --tw-prose-code: var(--accent-primary);
+        }
+        html[data-accent-color] .solarized-light .prose {
+            --tw-prose-body: var(--text-primary);
+            --tw-prose-headings: var(--text-primary);
+            --tw-prose-links: var(--accent-primary);
+            --tw-prose-bullets: var(--accent-primary);
+            --tw-prose-quote-borders: var(--accent-primary);
+            --tw-prose-code: var(--accent-primary);
+        }
+
         .prose-sm p, .prose p, .prose-xs p { @apply my-1.5; }
         .prose-sm ul, .prose ul, .prose-xs ul { @apply my-1.5; }
         
@@ -94,35 +411,37 @@
         }
 
         /* Custom Prism.js Overrides for Theme Consistency */
-        /* These styles will override the default Okaidia theme to better match our UI */
         pre[class*="language-"] {
-            background: transparent !important; /* Make Prism's pre background transparent so our component controls it */
+            background: transparent !important;
             border-radius: 0 !important;
             margin: 0 !important;
-            padding: 0 !important; /* Padding will be on the wrapper */
+            padding: 0 !important;
             text-shadow: none !important;
-            font-family: 'Fira Code', monospace !important;
             font-size: 0.8rem !important;
             line-height: 1.6 !important;
         }
         code[class*="language-"] {
             text-shadow: none !important;
-            font-family: 'Fira Code', monospace !important;
         }
-        .token.comment, .token.prolog, .token.doctype, .token.cdata { color: #8F9EB3; font-style: italic; } /* Lighter gray */
-        .token.punctuation { color: #A7B3C2; }
-        .token.property, .token.tag, .token.constant, .token.symbol, .token.deleted { color: #FF7B72; } /* A softer red/pink */
-        .token.boolean, .token.number { color: #d8b4fe; } /* purple-300 */
-        .token.selector, .token.attr-name, .token.string, .token.char, .token.builtin, .token.inserted { color: #A6E22E; } /* A vibrant lime green */
-        .token.operator, .token.entity, .token.url, .language-css .token.string, .style .token.string { color: #66D9EF; } /* A bright cyan for operators */
-        .token.atrule, .token.attr-value, .token.function, .token.class-name { color: #A6E22E; }
-        .token.keyword { color: #66D9EF; font-weight: 500; }
-        .token.regex, .token.important { color: #FD971F; } /* Orange */
+        .token.comment, .token.prolog, .token.doctype, .token.cdata { color: var(--prism-comment); font-style: italic; }
+        .token.punctuation { color: var(--prism-punctuation); }
+        .token.property, .token.tag, .token.constant, .token.symbol, .token.deleted { color: var(--prism-property); }
+        .token.boolean, .token.number { color: var(--prism-boolean-number); }
+        .token.selector, .token.attr-name, .token.string, .token.char, .token.builtin, .token.inserted { color: var(--prism-string); }
+        .token.operator, .token.entity, .token.url, .language-css .token.string, .style .token.string { color: var(--prism-operator); }
+        .token.atrule, .token.attr-value, .token.function, .token.class-name { color: var(--prism-function); }
+        .token.keyword { color: var(--prism-keyword); font-weight: 500; }
+        .token.regex, .token.important { color: var(--prism-regex); }
         .token.important, .token.bold { font-weight: bold; }
         .token.italic { font-style: italic; }
+
+        /* Diff Viewer Styles */
+        .diff-line-removed { background-color: rgba(239, 68, 68, 0.1); }
+        .diff-line-removed::before { content: '-'; position: absolute; left: 0; color: #f87171; }
+        .diff-line-added { background-color: rgba(34, 197, 94, 0.1); }
+        .diff-line-added::before { content: '+'; position: absolute; left: 0; color: #4ade80; }
     </style>
 
-    <!-- Prism.js Core and Autoloader for syntax highlighting -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js" defer></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js" defer></script>
 <script type="importmap">
@@ -132,16 +451,16 @@
     "react/": "https://aistudiocdn.com/react@^19.2.0/",
     "react": "https://aistudiocdn.com/react@^19.2.0",
     "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
-    "react-hot-toast": "https://aistudiocdn.com/react-hot-toast@^2.6.0",
     "vite": "https://aistudiocdn.com/vite@^7.1.8",
     "@vitejs/plugin-react": "https://aistudiocdn.com/@vitejs/plugin-react@^5.0.4",
-    "react-simple-code-editor": "https://aistudiocdn.com/react-simple-code-editor@^0.14.1"
+    "react-simple-code-editor": "https://aistudiocdn.com/react-simple-code-editor@^0.14.1",
+    "react-hot-toast": "https://aistudiocdn.com/react-hot-toast@^2.6.0"
   }
 }
 </script>
 <link rel="stylesheet" href="/index.css">
 </head>
-<body class="bg-bg-primary text-text-primary selection:bg-indigo-500/50 selection:text-white">
+<body class="selection:bg-indigo-500/50 selection:text-white" data-font-family="inter" data-font-size="base" data-code-font-family="fira-code" data-reduce-motion="false">
     <div id="root"></div>
     <script type="module" src="/src/index.tsx"></script>
 <script type="module" src="/index.tsx"></script>

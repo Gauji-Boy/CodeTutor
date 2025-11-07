@@ -1,4 +1,5 @@
 
+
 export interface BlockExplanation {
     codeBlock: string;
     explanation: string;
@@ -16,14 +17,31 @@ export interface VariableStateChange {
 }
 
 export interface VisualFlowStep {
-    lineNumber: number | null; 
+    lineNumber?: number;
     explanation: string;
     variablesState: Record<string, any>;
     stateChanges?: VariableStateChange[];
+    consoleOutput?: string;
+    inputRequired?: {
+        prompt: string;
+        variableName: string;
+    };
+}
+
+export interface CoreConceptDetail {
+    name: string;
+    description: string;
+    points?: string[];
+}
+
+export interface CoreConceptsExplanation {
+    title: string;
+    explanation: string;
+    concepts: CoreConceptDetail[];
 }
 
 export interface TopicExplanationParts {
-    coreConcepts: string;
+    coreConcepts: CoreConceptsExplanation;
     blockByBlockBreakdown: BlockExplanation[];
     lineByLineBreakdown: LineByLineExplanation[];
     executionFlowAndDataTransformation: string;
@@ -45,10 +63,10 @@ export interface PracticeContext {
 }
 
 export interface AnalysisResult {
-    topicExplanation: TopicExplanationParts;
-    exampleCode: string;
-    exampleCodeOutput: string;
-    practiceContext: PracticeContext; 
+    topicExplanation?: TopicExplanationParts;
+    exampleCode?: string;
+    exampleCodeOutput?: string;
+    practiceContext?: PracticeContext; 
     detectedLanguage?: SupportedLanguage;
 }
 
@@ -206,6 +224,35 @@ export type FontSize = 'sm' | 'base' | 'lg';
 export type FontFamily = 'inter' | 'lexend' | 'roboto-slab';
 export type CodeFontFamily = 'fira-code' | 'jetbrains-mono';
 export type AiModel = 'gemini-2.5-flash' | 'gemini-2.5-pro' | 'auto';
+export type Theme = 'dark' | 'light' | 'black' | 'slate' | 'rose' | 'nord' | 'solarized-light' | 'gruvbox-dark';
+export type AccentColor = 'indigo' | 'sky' | 'rose' | 'emerald' | 'amber' | 'slate' | 'fuchsia' | 'teal';
+
+export const ThemeOptions: Theme[] = ['dark', 'light', 'black', 'slate', 'rose', 'nord', 'solarized-light', 'gruvbox-dark'];
+export const ThemeDisplayNames: Record<Theme, string> = {
+    dark: 'Dark',
+    light: 'Light',
+    black: 'Black',
+    slate: 'Slate',
+    rose: 'Rose',
+    nord: 'Nord',
+    'solarized-light': 'Solarized Light',
+    'gruvbox-dark': 'Gruvbox Dark'
+};
+
+
+export const AccentColorOptions: AccentColor[] = ['indigo', 'sky', 'rose', 'emerald', 'amber', 'slate', 'fuchsia', 'teal'];
+
+export const AccentColorValues: Record<AccentColor, string> = {
+    indigo: '#4f46e5',
+    sky: '#0ea5e9',
+    rose: '#f43f5e',
+    emerald: '#10b981',
+    amber: '#f59e0b',
+    slate: '#64748b',
+    fuchsia: '#d946ef',
+    teal: '#14b8a6'
+};
+
 
 export interface GlobalSettings {
     // General
@@ -228,6 +275,8 @@ export interface GlobalSettings {
     fontFamily: FontFamily;
     codeFontFamily: CodeFontFamily;
     reduceMotion: boolean;
+    theme: Theme;
+    accentColor: AccentColor;
     // System
     isLeftPanelCollapsed?: boolean;
 }

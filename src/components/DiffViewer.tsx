@@ -53,7 +53,7 @@ const DiffViewerComponent: React.FC<DiffViewerProps> = ({ oldCode, newCode, lang
                         key={`${type}-${index}`} 
                         className={`relative pl-8 pr-2 ${line.type === 'removed' ? 'diff-line-removed' : ''} ${line.type === 'added' ? 'diff-line-added' : ''}`}
                     >
-                        <span className="absolute left-0 w-8 text-right text-gray-500 select-none pr-2">{index + 1}</span>
+                        <span className="absolute left-0 w-8 text-right text-[var(--text-muted)] select-none pr-2">{index + 1}</span>
                         <div className="line-content" dangerouslySetInnerHTML={{ __html: line.html || ' ' }} />
                     </div>
                 ))}
@@ -62,18 +62,18 @@ const DiffViewerComponent: React.FC<DiffViewerProps> = ({ oldCode, newCode, lang
     );
 
     return (
-        <div className="bg-gray-700/30 rounded-lg border border-gray-600/50 shadow-lg overflow-hidden">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-px bg-gray-600/50">
+        <div className="bg-[var(--bg-tertiary)]/50 rounded-lg border border-[var(--border-color)] shadow-lg overflow-hidden">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-px bg-[var(--border-color)]">
                 {/* Original Code Panel */}
-                <div className="bg-gray-900/60 flex flex-col">
-                    <div className="text-xs text-gray-400 bg-gray-700/50 px-3 py-1.5 border-b border-gray-600/50 font-semibold">
+                <div className="bg-[var(--bg-secondary)] flex flex-col">
+                    <div className="text-xs text-[var(--text-secondary)] bg-[var(--bg-tertiary)] px-3 py-1.5 border-b border-[var(--border-color)] font-semibold">
                         Your Original Code (before fixes)
                     </div>
                     {renderLines(diffData.oldLines, 'old')}
                 </div>
                 {/* Corrected Code Panel */}
-                <div className="bg-gray-900/60 flex flex-col">
-                    <div className="text-xs text-gray-400 bg-gray-700/50 px-3 py-1.5 border-b border-gray-600/50 font-semibold">
+                <div className="bg-[var(--bg-secondary)] flex flex-col">
+                    <div className="text-xs text-[var(--text-secondary)] bg-[var(--bg-tertiary)] px-3 py-1.5 border-b border-[var(--border-color)] font-semibold">
                         AI Corrected Code
                     </div>
                     {renderLines(diffData.newLines, 'new')}

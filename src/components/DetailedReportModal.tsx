@@ -1,6 +1,4 @@
-
 import React from 'react';
-import toast from 'react-hot-toast';
 import { ActivityItem, ActivityType, SupportedLanguage, LanguageDisplayNames } from '../types';
 
 interface DetailedReportModalProps {
@@ -81,7 +79,7 @@ const DetailedReportModalComponent: React.FC<DetailedReportModalProps> = ({ isOp
     const keyConcepts = getKeyConcepts();
     
     const showComingSoonToast = (featureName: string) => {
-        toast(`${featureName} feature is coming soon!`, { icon: '🚧' });
+        console.log(`${featureName} feature is coming soon!`);
     };
 
     const renderStatisticItem = (label: string, value: string | number) => (

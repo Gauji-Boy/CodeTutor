@@ -1,5 +1,4 @@
 import React from 'react';
-import toast from 'react-hot-toast';
 
 interface ProjectUploadProps {
     onProjectFilesSelected: (files: FileList) => void;
@@ -24,7 +23,7 @@ export const ProjectUpload: React.FC<ProjectUploadProps> = ({
 
     const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
         e.preventDefault();
-        toast.error('Drag-and-drop is not supported for folders. Please click to select a folder.', { icon: 'ℹ️' });
+        console.error('Drag-and-drop is not supported for folders. Please click to select a folder.');
     };
 
     const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
@@ -32,11 +31,11 @@ export const ProjectUpload: React.FC<ProjectUploadProps> = ({
     };
 
     return (
-        <div className="flex flex-col space-y-3 pt-3 border-t border-gray-700/70">
+        <div className="flex flex-col space-y-3 pt-3 border-t border-[var(--border-color)]">
             <div>
-                <h3 className="text-sm sm:text-base font-medium text-white mb-2">Select Project Folder</h3>
+                <h3 className="text-sm sm:text-base font-medium text-[var(--text-primary)] mb-2">Select Project Folder</h3>
                 <div 
-                    className={`border-2 border-dashed ${projectName ? 'border-indigo-500' : 'border-gray-600'} rounded-lg p-4 flex flex-col items-center justify-center text-center mb-2 hover:border-indigo-400 transition-colors cursor-pointer min-h-[140px] sm:min-h-[160px] bg-transparent hover:bg-gray-700/20`}
+                    className={`border-2 border-dashed ${projectName ? 'border-[var(--accent-primary)]' : 'border-[var(--border-color)]'} rounded-lg p-4 flex flex-col items-center justify-center text-center mb-2 hover:border-[var(--accent-primary)] transition-colors cursor-pointer min-h-[160px] bg-transparent hover:bg-[var(--bg-tertiary)]/40`}
                     onClick={() => !isLoading && document.getElementById(fileInputId)?.click()}
                     onDrop={handleDrop}
                     onDragOver={handleDragOver}
@@ -45,15 +44,15 @@ export const ProjectUpload: React.FC<ProjectUploadProps> = ({
                     tabIndex={isLoading ? -1 : 0}
                     onKeyPress={(e) => { if (e.key === 'Enter' || e.key === ' ') !isLoading && document.getElementById(fileInputId)?.click(); }}
                 >
-                    <span className={`material-icons-outlined text-3xl sm:text-4xl mb-1 sm:mb-2 transition-colors ${projectName ? 'text-indigo-400' : 'text-gray-500'}`}>
+                    <span className={`material-icons-outlined text-3xl sm:text-4xl mb-1 sm:mb-2 transition-colors ${projectName ? 'text-[var(--accent-primary)]' : 'text-[var(--text-muted)]'}`}>
                         {projectName ? 'folder_special' : 'folder_open'}
                     </span>
-                    <p className="text-gray-300 text-xs sm:text-sm mb-1">
-                        <span className="text-indigo-400 hover:text-indigo-300 font-medium">
+                    <p className="text-[var(--text-secondary)] text-xs sm:text-sm mb-1">
+                        <span className="text-[var(--accent-primary)] hover:text-[var(--accent-primary-hover)] font-medium">
                             {projectName ? 'Change Folder' : 'Choose Folder'}
                         </span>
                     </p>
-                    <p className="text-xs text-gray-500 leading-tight px-1">Sub-folders will be included.</p>
+                    <p className="text-xs text-[var(--text-muted)] leading-tight px-1">Sub-folders will be included.</p>
                     <input 
                         id={fileInputId} 
                         type="file" 
@@ -65,9 +64,9 @@ export const ProjectUpload: React.FC<ProjectUploadProps> = ({
                     />
                 </div>
                 {projectName && (
-                    <div className="mt-1 p-1.5 bg-gray-700/40 rounded-md border border-gray-600/50 text-xs">
-                        <p className="text-gray-300 truncate">Project: <span className="font-medium text-indigo-400">{projectName}</span></p>
-                        <p className="text-gray-500">Files read: {fileCount}</p>
+                    <div className="mt-1 p-1.5 bg-[var(--bg-tertiary)]/60 rounded-md border border-[var(--border-color)] text-xs">
+                        <p className="text-[var(--text-secondary)] truncate">Project: <span className="font-medium text-[var(--accent-primary)]">{projectName}</span></p>
+                        <p className="text-[var(--text-muted)]">Files read: {fileCount}</p>
                     </div>
                 )}
             </div>

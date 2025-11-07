@@ -1,10 +1,12 @@
-import React, { useState, useEffect, useCallback } from 'react';
-// FIX: Changed to a named import as DashboardPage is not a default export.
-import { DashboardPage } from './pages/DashboardPage';
-import { HomePage } from './pages/HomePage';
-import { Toaster, toast } from 'react-hot-toast';
+import React, { useState, useEffect, useCallback, Suspense, lazy } from 'react';
 import { ActivityItem } from './types';
-import { ErrorMessage } from './components/ErrorMessage'; // Import ErrorMessage
+import { ErrorMessage } from './components/ErrorMessage';
+import { LoadingSpinner } from './components/LoadingSpinner';
+
+// FIX: Lazy load page components for route-based code splitting.
+const DashboardPage = lazy(() => import('./pages/DashboardPage').then(module => ({ default: module.DashboardPage })));
+const HomePage = lazy(() => import('./pages/HomePage').then(module => ({ default: module.HomePage })));
+
 
 const MAX_ACTIVITIES = 50;
 const ACTIVITY_STORAGE_KEY = 'codeTutorAI_Activities';
@@ -78,12 +80,12 @@ const App: React.FC = () => {
         } catch (error) {
             console.error("Error clearing activities from localStorage:", error);
         }
-        toast.success("All activity data has been cleared from storage.");
+        console.log("All activity data has been cleared from storage.");
     }, []);
 
     const navigateToAnalysis = (activity: ActivityItem) => {
         if (activity.type === 'settings_update') {
-            toast.error("Settings updates cannot be reloaded into the analysis view.", { icon: 'ℹ️', duration: 4000 });
+            console.log("Settings updates cannot be reloaded into the analysis view.");
             return;
         }
         setActivityToLoad(activity);
@@ -117,40 +119,7 @@ const App: React.FC = () => {
     }
 
     return (
-        <>
-            <Toaster
-                position="top-center"
-                toastOptions={{
-                    duration: 3500,
-                    style: {
-                        background: 'var(--bg-secondary)', 
-                        color: 'var(--text-primary)',      
-                        borderRadius: '0.5rem',            
-                        padding: '12px 18px',              
-                        fontSize: '0.9rem',                
-                        border: '1px solid var(--border-color)', 
-                        boxShadow: '0 5px 15px rgba(0,0,0,0.3)', 
-                    },
-                    success: {
-                        iconTheme: {
-                            primary: '#10B981', 
-                            secondary: 'var(--bg-primary)', 
-                        },
-                    },
-                    error: {
-                        iconTheme: {
-                            primary: '#EF4444', 
-                            secondary: 'var(--bg-primary)',
-                        },
-                        duration: 4500, 
-                    },
-                    loading: {
-                        icon: (
-                            <div className="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
-                        ),
-                    },
-                }}
-            />
+        <Suspense fallback={<div className="flex h-screen w-full items-center justify-center"><LoadingSpinner loadingText="Loading App..." /></div>}>
             {currentView === 'dashboard' && (
                 <DashboardPage
                     activities={allActivities}
@@ -168,7 +137,7 @@ const App: React.FC = () => {
                     onClearAllActivities={clearAllActivities}
                 />
             )}
-        </>
+        </Suspense>
     );
 };
 

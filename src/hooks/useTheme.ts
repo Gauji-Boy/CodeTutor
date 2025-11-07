@@ -1,5 +1,4 @@
-
-// This file appears to be unused. If a theme hook is needed in the future, 
-// it can be implemented here. For now, it remains empty.
-// Consider removing this file if it's confirmed to be unused.
+// This file appears to be unused. The theme logic is handled by the `useGlobalSettings` hook,
+// which directly sets data attributes on the `document.body` and `document.documentElement`.
+// For now, it remains empty and can be safely removed from the project.
 export {};

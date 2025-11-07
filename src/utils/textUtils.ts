@@ -1,4 +1,3 @@
-
 // src/utils/textUtils.ts
 export const escapeHtml = (unsafe: string): string => {
     if (typeof unsafe !== 'string') return ''; // Handle non-string inputs gracefully

@@ -1,19 +1,6 @@
-
-/* theme.css - Simplified for Tailwind-first approach */
-
-/* Selection styles are handled by Tailwind's selection variant on the body tag in index.html */
-
-/* Custom scrollbar for small elements (if needed, otherwise global scrollbar from index.html applies) */
-.custom-scrollbar-small::-webkit-scrollbar {
-    width: 6px; 
-    height: 6px;
-}
-.custom-scrollbar-small::-webkit-scrollbar-thumb {
-    background-color: #4b5563; /* gray-600 */
-    border-radius: 3px;
-    border: 1.5px solid #1f2937; /* gray-800 - track color */
-}
-.custom-scrollbar-small::-webkit-scrollbar-track {
-    background-color: #1f2937; /* gray-800 */
-    border-radius: 3px;
-}
+/* 
+  This file is no longer in use. 
+  All theme and styling logic has been consolidated into the <style type="text/tailwindcss"> block in index.html for a more streamlined, modern approach.
+  This allows for dynamic theme switching via CSS variables and data attributes on the <html> tag, which is more performant than loading separate stylesheets.
+  This file can be safely deleted.
+*/

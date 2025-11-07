@@ -1,8 +1,6 @@
-
-import React, { useState, useEffect } from 'react';
-import toast from 'react-hot-toast';
+import React, { useState, useEffect, useMemo } from 'react';
 import { SupportedLanguage } from '../types';
-import { escapeHtml } from '../utils/textUtils'; // Import centralized utility
+import { escapeHtml } from '../utils/textUtils';
 
 declare var Prism: any; // Declare Prism to satisfy TypeScript since it's loaded globally
 
@@ -31,115 +29,99 @@ export const getPrismLanguageString = (lang: SupportedLanguage | null | undefine
 interface CodeBlockProps {
     code: string;
     language: SupportedLanguage;
-    idSuffix?: string; // Optional suffix for unique IDs if multiple blocks are on a page
+    idSuffix?: string;
     showLineNumbers?: boolean;
     containerClassName?: string;
 }
 
-const CodeBlockComponent: React.FC<CodeBlockProps> = ({ code, language, idSuffix = "", showLineNumbers = false, containerClassName = '' }) => {
+const CodeBlockComponent: React.FC<CodeBlockProps> = ({ code, language, idSuffix = "", showLineNumbers = false, containerClassName = "" }) => {
     const [copied, setCopied] = useState(false);
     const [highlightedHtml, setHighlightedHtml] = useState<string>('');
 
     useEffect(() => {
-        let isMounted = true; // To prevent state updates on unmounted component
+        let isMounted = true;
 
         const highlightCode = () => {
             if (typeof Prism !== 'undefined' && Prism.highlight && code) {
                 const prismLang = getPrismLanguageString(language);
 
-                // Check if language is loaded, try to autoload if not
-                if (!Prism.languages[prismLang] && Prism.plugins && Prism.plugins.autoloader) {
+                const applyHighlight = (grammar: any, lang: string) => {
+                    try {
+                        const html = Prism.highlight(code, grammar, lang);
+                        if (isMounted) setHighlightedHtml(html);
+                    } catch (e) {
+                        console.warn(`Prism highlighting failed for ${lang}:`, e);
+                        if (isMounted) setHighlightedHtml(escapeHtml(code));
+                    }
+                };
+
+                if (Prism.languages[prismLang]) {
+                    applyHighlight(Prism.languages[prismLang], prismLang);
+                } else if (Prism.plugins?.autoloader) {
                     Prism.plugins.autoloader.loadLanguages(prismLang, () => {
                         if (isMounted && Prism.languages[prismLang]) {
-                            try {
-                                const html = Prism.highlight(code, Prism.languages[prismLang], prismLang);
-                                setHighlightedHtml(html);
-                            } catch (e) {
-                                console.warn(`Prism highlighting failed for ${prismLang} after load:`, e);
-                                setHighlightedHtml(escapeHtml(code)); // Fallback to escaped raw code
-                            }
+                            applyHighlight(Prism.languages[prismLang], prismLang);
                         } else if (isMounted) {
-                             console.warn(`Prism grammar for ${prismLang} still not available after trying to load. Displaying raw code.`);
-                             setHighlightedHtml(escapeHtml(code));
+                            console.warn(`Prism autoloader could not load ${prismLang}.`);
+                            setHighlightedHtml(escapeHtml(code));
                         }
                     });
-                } else if (Prism.languages[prismLang]) {
-                     try {
-                        const html = Prism.highlight(code, Prism.languages[prismLang], prismLang);
-                        setHighlightedHtml(html);
-                    } catch (e) {
-                        console.warn(`Prism highlighting failed for ${prismLang}:`, e);
-                        setHighlightedHtml(escapeHtml(code));
-                    }
                 } else {
-                    // Autoloader might not be present, or language truly not supported by current Prism setup
-                    console.warn(`Prism grammar for ${prismLang} not available. Displaying raw code.`);
+                    console.warn(`Prism grammar for ${prismLang} not found.`);
                     setHighlightedHtml(escapeHtml(code));
                 }
             } else if (code) {
-                // Prism not available or no code, just escape HTML
                 setHighlightedHtml(escapeHtml(code));
             } else {
-                setHighlightedHtml(''); // Handle empty code string
+                setHighlightedHtml('');
             }
         };
 
-        // Defer highlighting slightly to avoid blocking initial render for complex code blocks
-        // This can improve perceived performance.
-        const timer = setTimeout(highlightCode, 0); 
+        const timer = setTimeout(highlightCode, 0);
 
         return () => {
             isMounted = false;
             clearTimeout(timer);
         };
     }, [code, language]);
+    
+    const codeLines = useMemo(() => code.split('\n'), [code]);
 
     const copyCodeToClipboard = () => {
         navigator.clipboard.writeText(code).then(() => {
             setCopied(true);
-            toast.success('Code copied!');
             setTimeout(() => setCopied(false), 2000);
         }).catch(err => {
-            toast.error('Failed to copy code.');
             console.error('Failed to copy code: ', err);
         });
     };
 
     const prismLanguageClass = `language-${getPrismLanguageString(language)}`;
-    const lineCount = code.split('\n').length;
 
     return (
-        <div className="relative group">
-            <div className={`bg-gray-900/60 rounded-md flex text-xs font-fira-code leading-relaxed overflow-auto custom-scrollbar-small ${containerClassName}`}>
+        <div className={`relative group bg-[var(--bg-primary)]/60 text-[var(--text-primary)] rounded-lg border border-[var(--border-color)] overflow-auto custom-scrollbar-small ${containerClassName}`}>
+            <div className="flex text-sm font-fira-code leading-relaxed relative">
                 {showLineNumbers && (
-                    <div className="sticky left-0 z-10 p-3.5 text-right text-gray-500 select-none bg-gray-900/60 border-r border-gray-700/50">
-                        {Array.from({ length: lineCount }, (_, i) => (
-                            <div key={`ln-${idSuffix}-${i + 1}`}>{i + 1}</div>
-                        ))}
+                    <div className="sticky left-0 z-10 bg-[var(--bg-secondary)]/80 backdrop-blur-sm text-right text-[var(--text-muted)] select-none p-4 pr-3 border-r border-[var(--border-color)]">
+                        {codeLines.map((_, i) => <div key={i}>{i + 1}</div>)}
                     </div>
                 )}
-                <pre
-                    className={`!m-0 p-3.5 ${showLineNumbers ? 'flex-grow' : 'w-full'}`}
-                    style={{ tabSize: 4 }}
-                >
-                    <code
-                        className={`!text-gray-200 whitespace-pre ${prismLanguageClass}`}
-                        dangerouslySetInnerHTML={{ __html: highlightedHtml || escapeHtml(code || '') }}
-                    />
+                <pre className={`p-4 ${showLineNumbers ? '' : 'w-full'}`}>
+                    <code className={prismLanguageClass} dangerouslySetInnerHTML={{ __html: highlightedHtml || escapeHtml(code || '') }} />
                 </pre>
             </div>
             <button
                 onClick={copyCodeToClipboard}
-                title={copied ? "Copied!" : "Copy code"}
+                title="Copy code"
                 aria-label="Copy code to clipboard"
-                className="absolute top-1.5 right-1.5 bg-gray-600 hover:bg-indigo-600 text-gray-300 hover:text-white p-1 rounded-md text-xs opacity-0 group-hover:opacity-100 transition-all duration-150 focus:opacity-100 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:ring-offset-gray-700 flex items-center gap-0.5 shadow-md"
+                className="absolute top-2.5 right-2.5 p-1.5 bg-[var(--bg-tertiary)]/80 hover:bg-[var(--accent-primary)] text-[var(--text-secondary)] hover:text-white rounded-md opacity-0 group-hover:opacity-100 focus:opacity-100 transition-all duration-150 z-20"
             >
-                <span className="material-icons-outlined text-sm">
-                    {copied ? 'done' : 'content_copy'}
+                <span className="material-icons text-lg">
+                    {copied ? 'done_all' : 'content_copy'}
                 </span>
             </button>
         </div>
     );
 };
-// Memoize the component for performance, as code/language props might not change frequently for a given block.
+
 export const CodeBlock = React.memo(CodeBlockComponent);

@@ -1,7 +1,5 @@
-
 import { useState, useEffect, useCallback } from 'react';
-import { toast } from 'react-hot-toast';
-import { ExampleDifficulty, GlobalSettings, TopicExplanationVisibility, FontSize, FontFamily, CodeFontFamily, AiModel } from '../types';
+import { ExampleDifficulty, GlobalSettings, TopicExplanationVisibility, FontSize, FontFamily, CodeFontFamily, AiModel, Theme, AccentColor, ThemeOptions } from '../types';
 
 const GLOBAL_SETTINGS_KEY = 'codeTutorGlobalSettings';
 
@@ -33,6 +31,8 @@ const defaultSettings: GlobalSettings = {
     fontFamily: 'inter',
     codeFontFamily: 'fira-code',
     reduceMotion: false,
+    theme: 'dark',
+    accentColor: 'indigo',
     // System
     isLeftPanelCollapsed: false,
 };
@@ -85,7 +85,17 @@ export const useGlobalSettings = () => {
     // Effect to apply settings to the DOM and save to localStorage
     useEffect(() => {
         try {
-            // Apply DOM settings
+            const root = document.documentElement; // html tag
+
+            // Apply theme and accent
+            ThemeOptions.forEach(themeName => {
+                root.classList.remove(themeName);
+            });
+            root.classList.add(settings.theme);
+            
+            root.dataset.accentColor = settings.accentColor;
+            
+            // Apply other DOM settings
             const body = document.body;
             body.dataset.fontSize = settings.fontSize;
             body.dataset.fontFamily = settings.fontFamily;
@@ -111,6 +121,8 @@ export const useGlobalSettings = () => {
     const setTopP = useCallback((topP: number) => setSettings(p => ({ ...p, topP: topP })), []);
 
     // New setters for Interface
+    const setTheme = useCallback((theme: Theme) => setSettings(p => ({ ...p, theme })), []);
+    const setAccentColor = useCallback((color: AccentColor) => setSettings(p => ({ ...p, accentColor: color })), []);
     const setFontSize = useCallback((size: FontSize) => setSettings(p => ({ ...p, fontSize: size })), []);
     const setFontFamily = useCallback((family: FontFamily) => setSettings(p => ({ ...p, fontFamily: family })), []);
     const setCodeFontFamily = useCallback((family: CodeFontFamily) => setSettings(p => ({ ...p, codeFontFamily: family })), []);
@@ -162,6 +174,8 @@ export const useGlobalSettings = () => {
                 newSettings.fontFamily = defaultSettings.fontFamily;
                 newSettings.codeFontFamily = defaultSettings.codeFontFamily;
                 newSettings.reduceMotion = defaultSettings.reduceMotion;
+                newSettings.theme = defaultSettings.theme;
+                newSettings.accentColor = defaultSettings.accentColor;
             }
             return newSettings;
         });
@@ -172,10 +186,9 @@ export const useGlobalSettings = () => {
             const imported = JSON.parse(jsonString);
             const validatedAndMerged = mergeSettings(imported);
             setSettings(validatedAndMerged);
-            toast.success("Settings imported successfully!");
+            console.log("Settings imported successfully!");
         } catch (error) {
             console.error("Failed to import settings:", error);
-            toast.error("Failed to import settings. The file may be invalid.");
         }
     }, []);
 
@@ -197,5 +210,7 @@ export const useGlobalSettings = () => {
         setFontFamily,
         setCodeFontFamily,
         setReduceMotion,
+        setTheme,
+        setAccentColor,
     };
 };

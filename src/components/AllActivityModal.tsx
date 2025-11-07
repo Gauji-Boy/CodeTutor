@@ -1,7 +1,5 @@
-
 import React from 'react';
 import { ActivityItem } from '../types';
-import toast from 'react-hot-toast';
 
 interface AllActivityModalProps {
     isOpen: boolean;
@@ -34,7 +32,7 @@ const AllActivityModalComponent: React.FC<AllActivityModalProps> = ({ isOpen, on
             onViewActivityDetail(activity);
             onClose(); // Close modal after navigating
         } else {
-            toast('This activity type cannot be reloaded or has no detailed view.', { icon: 'ℹ️', duration: 4000 });
+            console.log('This activity type cannot be reloaded or has no detailed view.');
         }
     };
 

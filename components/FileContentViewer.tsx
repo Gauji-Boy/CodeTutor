@@ -1,18 +1,3 @@
-import React from 'react';
-import { Card } from './Card';
-import { CodeBlock } from './CodeBlock';
-import { SupportedLanguage, LanguageDisplayNames } from '../types';
-
-interface FileContentViewerProps {
-    codeContent: string;
-    language: SupportedLanguage;
-}
-
-export const FileContentViewer: React.FC<FileContentViewerProps> = ({ codeContent, language }) => {
-    const languageName = LanguageDisplayNames[language] || "Source Code";
-    return (
-        <Card title={`Your Uploaded ${languageName} Code`}>
-            <CodeBlock code={codeContent} language={language} />
-        </Card>
-    );
-};
+// This file appears to be a duplicate or an older version of src/components/FileContentViewer.tsx.
+// To avoid confusion and ensure the correct component is used, its content has been cleared.
+// The primary, up-to-date component is located at src/components/FileContentViewer.tsx.

@@ -18,17 +18,17 @@ const ErrorCard: React.FC<{ error: IdentifiedError, index: number }> = ({ error,
     };
 
     return (
-        <div className="bg-gray-700/30 p-3 rounded-lg border border-gray-600/50">
+        <div className="bg-[var(--bg-tertiary)]/50 p-3 rounded-lg border border-[var(--border-color)]">
             <div className="flex justify-between items-center mb-2">
-                <h4 className="font-semibold text-sm text-gray-100 flex items-center">
-                    <span className="material-icons-outlined text-base text-indigo-400 mr-2">error</span>
+                <h4 className="font-semibold text-sm text-[var(--text-primary)] flex items-center">
+                    <span className="material-icons-outlined text-base text-[var(--accent-primary)] mr-2">error</span>
                     Error #{index + 1} {error.errorLine ? `(Line ${error.errorLine})` : ''}
                 </h4>
                 <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${errorTypeColors[error.errorType]}`}>
                     {error.errorType}
                 </span>
             </div>
-            <p className="text-sm text-gray-300 leading-relaxed mb-3">{error.explanation}</p>
+            <p className="text-sm text-[var(--text-secondary)] leading-relaxed mb-3">{error.explanation}</p>
             <div>
                 <div className="mb-2">
                     <p className="text-xs font-semibold text-red-400 mb-1">Erroneous Code:</p>
@@ -47,18 +47,18 @@ const DebugResultDisplayComponent: React.FC<DebugResultDisplayProps> = ({ result
     return (
         <div className="w-full text-left space-y-6 sm:space-y-8">
             <section aria-labelledby="debug-summary-title">
-                <h3 id="debug-summary-title" className="text-lg font-semibold text-white mb-2 flex items-center">
-                    <span className="material-icons-outlined text-indigo-400 mr-2 text-xl">summarize</span>
+                <h3 id="debug-summary-title" className="text-lg font-semibold text-[var(--text-primary)] mb-2 flex items-center">
+                    <span className="material-icons-outlined text-[var(--accent-primary)] mr-2 text-xl">summarize</span>
                     AI Debugging Summary
                 </h3>
-                <p className="text-sm text-gray-300 bg-gray-700/20 p-3 rounded-md border border-gray-600/40 leading-relaxed">
+                <p className="text-sm text-[var(--text-secondary)] bg-[var(--bg-tertiary)]/50 p-3 rounded-md border border-[var(--border-color)] leading-relaxed">
                     {result.summary}
                 </p>
             </section>
 
             <section aria-labelledby="code-corrections-title">
-                <h3 id="code-corrections-title" className="text-lg font-semibold text-white mb-3 flex items-center">
-                    <span className="material-icons-outlined text-indigo-400 mr-2 text-xl">difference</span>
+                <h3 id="code-corrections-title" className="text-lg font-semibold text-[var(--text-primary)] mb-3 flex items-center">
+                    <span className="material-icons-outlined text-[var(--accent-primary)] mr-2 text-xl">difference</span>
                     Code Corrections (Diff View)
                 </h3>
                 <DiffViewer oldCode={originalCode} newCode={result.correctedCode} language={language} />
@@ -66,8 +66,8 @@ const DebugResultDisplayComponent: React.FC<DebugResultDisplayProps> = ({ result
 
             {result.errorAnalysis && result.errorAnalysis.length > 0 && (
                 <section aria-labelledby="detailed-errors-title">
-                    <h3 id="detailed-errors-title" className="text-lg font-semibold text-white mb-3 flex items-center">
-                        <span className="material-icons-outlined text-indigo-400 mr-2 text-xl">playlist_add_check</span>
+                    <h3 id="detailed-errors-title" className="text-lg font-semibold text-[var(--text-primary)] mb-3 flex items-center">
+                        <span className="material-icons-outlined text-[var(--accent-primary)] mr-2 text-xl">playlist_add_check</span>
                         Detailed Error Analysis
                     </h3>
                     <div className="space-y-4">

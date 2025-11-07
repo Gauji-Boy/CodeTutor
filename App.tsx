@@ -1,12 +1,11 @@
-
+// This file appears to be a duplicate or an older version of src/App.tsx.
+// To avoid confusion and ensure the correct component is used, its content has been cleared.
+// The primary, up-to-date application entry component is located at src/App.tsx.
 import React from 'react';
-// This component is a pass-through. The main application logic and layout 
-// are now managed by src/App.tsx which renders src/pages/HomePage.tsx.
-// This file can be considered deprecated or for future root-level routing if needed.
-import MainApp from './src/App';
 
 const App: React.FC = () => {
-  return <MainApp />;
+  // This component is intentionally left empty as it is deprecated.
+  return null;
 };
 
 export default App;

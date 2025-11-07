@@ -1,10 +1,9 @@
-
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import toast from 'react-hot-toast';
 import { SettingsPanel } from '../components/SettingsPanel';
 import { AllActivityModal } from '../components/AllActivityModal'; 
 import { DetailedReportModal } from '../components/DetailedReportModal';
-import { ActivityItem, ActivityType, SupportedLanguage, ProjectFile, LanguageExtensions, AcceptedFileExtensions } from '../types'; 
+import { ActivityItem, ActivityType, SupportedLanguage, ProjectFile, LanguageExtensions, AcceptedFileExtensions, LanguageDisplayNames, SupportedLanguage as LangEnum } from '../types'; 
+import { CodeBlock } from '../components/CodeBlock';
 
 interface DashboardPageProps {
     activities: ActivityItem[];
@@ -31,8 +30,10 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ activities, onView
     const [activeInputType, setActiveInputType] = useState<InputType>('file');
     const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
     const [fileContentForAnalysis, setFileContentForAnalysis] = useState<string | null>(null);
+    const [fileLanguage, setFileLanguage] = useState<SupportedLanguage | null>(null);
     const [pastedCode, setPastedCode] = useState<string>('');
     const [conceptDescription, setConceptDescription] = useState<string>('');
+    const [conceptLanguage, setConceptLanguage] = useState<SupportedLanguage>(LangEnum.PYTHON);
     const [debugCode, setDebugCode] = useState<string>('');
     const [projectFiles, setProjectFiles] = useState<ProjectFile[] | null>(null);
     const [projectName, setProjectName] = useState<string | null>(null);
@@ -48,6 +49,13 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ activities, onView
 
     const [isAllActivityModalOpen, setIsAllActivityModalOpen] = useState<boolean>(false);
     const [isReportModalOpen, setIsReportModalOpen] = useState<boolean>(false);
+
+    const languageOptions = Object.values(LangEnum)
+                              .filter(lang => lang !== LangEnum.UNKNOWN)
+                              .map(lang => ({
+                                  value: lang,
+                                  label: LanguageDisplayNames[lang]
+                              }));
     
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
@@ -75,8 +83,10 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ activities, onView
         setActiveInputType(type);
         setSelectedFileName(null); 
         setFileContentForAnalysis(null);
+        setFileLanguage(null);
         setPastedCode('');
         setConceptDescription('');
+        setConceptLanguage(LangEnum.PYTHON);
         setDebugCode('');
         setProjectFiles(null);
         setProjectName(null);
@@ -91,13 +101,16 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ activities, onView
         if (event.target.files && event.target.files[0]) {
             const file = event.target.files[0];
             setSelectedFileName(file.name);
+            const extension = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
+            const detectedLang = LanguageExtensions[extension] || LangEnum.UNKNOWN;
+            setFileLanguage(detectedLang);
             const reader = new FileReader();
             reader.onload = (e) => setFileContentForAnalysis(e.target?.result as string);
             reader.readAsText(file);
-            toast.success(`File "${file.name}" selected.`);
         } else {
             setSelectedFileName(null);
             setFileContentForAnalysis(null);
+            setFileLanguage(null);
         }
     };
     
@@ -107,7 +120,6 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ activities, onView
             setSelectedImageFile(file);
             if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
             setImagePreviewUrl(URL.createObjectURL(file));
-            toast.success(`Image "${file.name}" selected.`);
         } else {
             setSelectedImageFile(null);
             if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
@@ -122,10 +134,12 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ activities, onView
         if (event.dataTransfer.files && event.dataTransfer.files[0]) {
             const file = event.dataTransfer.files[0];
             setSelectedFileName(file.name);
+            const extension = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
+            const detectedLang = LanguageExtensions[extension] || LangEnum.UNKNOWN;
+            setFileLanguage(detectedLang);
             const reader = new FileReader();
             reader.onload = (e) => setFileContentForAnalysis(e.target?.result as string);
             reader.readAsText(file);
-            toast.success(`File "${file.name}" dropped.`);
         }
     };
 
@@ -138,9 +152,8 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ activities, onView
             setSelectedImageFile(file);
             if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
             setImagePreviewUrl(URL.createObjectURL(file));
-            toast.success(`Image "${file.name}" dropped.`);
         } else if (file) {
-            toast.error("Please drop an image file (PNG, JPG, etc.).");
+            console.error("Please drop an image file (PNG, JPG, etc.).");
         }
     };
 
@@ -158,7 +171,6 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ activities, onView
         if (!files || files.length === 0) return;
 
         setIsLoading(true);
-        toast.loading('Reading project files...', { id: 'project-read' });
 
         const fileContents: ProjectFile[] = [];
         const filesArray = Array.from(files);
@@ -197,9 +209,9 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ activities, onView
         setProjectFiles(fileContents);
         setIsLoading(false);
         if(fileContents.length > 0) {
-            toast.success(`Project "${finalProjectName}" loaded with ${fileContents.length} files.`, { id: 'project-read', duration: 4000 });
+            console.log(`Project "${finalProjectName}" loaded with ${fileContents.length} files.`);
         } else {
-            toast.error(`Could not read any files from the selected directory.`, { id: 'project-read', duration: 4000 });
+            console.error(`Could not read any files from the selected directory.`);
         }
     };
 
@@ -229,7 +241,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ activities, onView
             const extension = selectedFileName.substring(selectedFileName.lastIndexOf('.')).toLowerCase();
             newActivityLang = LanguageExtensions[extension] || SupportedLanguage.UNKNOWN;
             if (newActivityLang === SupportedLanguage.UNKNOWN) {
-                toast.error(`Unsupported file type: "${extension}". Analysis page will require manual language selection.`, {duration: 5000});
+                console.warn(`Unsupported file type: "${extension}". Analysis page will require manual language selection.`);
             }
         } else if (activeInputType === 'image' && selectedImageFile) {
             const reader = new FileReader();
@@ -247,7 +259,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ activities, onView
                 };
                 onViewActivityDetail(newActivity);
             };
-            reader.onerror = () => toast.error("Could not read image file.");
+            reader.onerror = () => console.error("Could not read image file.");
             // Return early as the activity creation is async
             return;
         } else if (activeInputType === 'concept' && conceptDescription.trim()) {
@@ -256,9 +268,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ activities, onView
             originalInputText = conceptDescription;
             newActivityIcon = 'lightbulb';
             newActivityColor = 'text-green-500';
-            if (conceptDescription.toLowerCase().includes("python")) newActivityLang = SupportedLanguage.PYTHON;
-            else if (conceptDescription.toLowerCase().includes("javascript") || conceptDescription.toLowerCase().includes("js")) newActivityLang = SupportedLanguage.JAVASCRIPT;
-            else newActivityLang = SupportedLanguage.PYTHON;
+            newActivityLang = conceptLanguage;
         } else if (activeInputType === 'paste' && pastedCode.trim()) {
             newActivityType = 'paste_analysis';
             newActivityTitle = `Pasted Code: ${pastedCode.substring(0,20)}...`;
@@ -281,7 +291,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ activities, onView
             newActivityColor = 'text-purple-400';
             newActivityLang = undefined;
         } else {
-            toast.error("Please provide valid input for analysis.");
+            console.error("Please provide valid input for analysis.");
             return;
         }
 
@@ -334,7 +344,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ activities, onView
         if (activity.type !== 'settings_update') {
             onViewActivityDetail(activity);
         } else {
-            toast('This activity type cannot be reloaded or has no detailed view.', { icon: 'ℹ️', duration: 4000 });
+            console.log('This activity type cannot be reloaded or has no detailed view.');
         }
     };
 
@@ -392,20 +402,20 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ activities, onView
                     </div>
                 </aside>
 
-                <div className="flex-1 flex flex-col overflow-y-auto">
-                    <header className="bg-[var(--bg-secondary)] shadow-md sticky top-0 z-40">
+                <div className="flex-1 flex flex-col max-h-screen overflow-hidden">
+                    <header className="bg-[var(--bg-secondary)] shadow-md top-0 z-40 flex-shrink-0">
                         <div className="container mx-auto px-6 py-4 flex justify-between items-center">
                             <h2 className="text-xl font-semibold text-white">Code Analysis Dashboard</h2>
                         </div>
                     </header>
 
-                    <main className="flex-grow container mx-auto px-6 py-8">
+                    <main className="flex-grow container mx-auto px-6 py-8 overflow-y-auto custom-scrollbar-small">
                         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                             <div className="lg:col-span-2 space-y-8">
                                 <section className="card">
                                     <h3 className="text-lg font-semibold text-[var(--text-primary)] mb-1">Start New Analysis</h3>
                                     <p className="text-sm text-[var(--text-muted)] mb-6">Choose your preferred method to submit code or ask questions.</p>
-                                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
+                                    <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 mb-6">
                                         <button onClick={() => handleInputTypeChange('file')} className={`input-method-btn ${activeInputType === 'file' ? 'active' : ''}`} aria-pressed={activeInputType === 'file'} aria-label="Select Upload File method">
                                             <span className="material-icons-outlined">upload_file</span>
                                             <span>Upload File</span>
@@ -434,37 +444,64 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ activities, onView
 
                                     {activeInputType === 'file' && (
                                         <div className="space-y-4">
-                                            <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1" htmlFor="fileUploadInputDashboard">Upload Your Code File</label>
-                                            <div 
-                                                className="border-2 border-dashed border-[var(--border-color)] rounded-lg p-6 flex flex-col items-center justify-center bg-[var(--bg-primary)] hover:border-[var(--accent-primary)] transition-colors duration-200 cursor-pointer"
-                                                onClick={() => document.getElementById('fileUploadInputDashboard')?.click()}
-                                                onDrop={handleDrop}
-                                                onDragOver={handleDragOver}
-                                                onDragLeave={handleDragLeave}
-                                                role="button" tabIndex={0} aria-label="File upload drop zone"
-                                                onKeyPress={(e) => { if (e.key === 'Enter' || e.key === ' ') document.getElementById('fileUploadInputDashboard')?.click(); }}
-                                            >
-                                                <span className="material-icons-outlined text-5xl text-[var(--text-muted)] mb-3">cloud_upload</span>
-                                                <p className="text-[var(--text-secondary)] mb-1 text-center"><span className="font-semibold text-[var(--accent-primary)]">Click to choose file</span> or drag and drop</p>
-                                                <p className="text-xs text-[var(--text-muted)] text-center">Max 5MB. Supported: PY, JAVA, JS, TS, HTML, CSS, etc.</p>
-                                                <input className="hidden" id="fileUploadInputDashboard" type="file" onChange={handleFileChange} aria-hidden="true" accept={AcceptedFileExtensions}/>
-                                            </div>
-                                            {selectedFileName && ( <div className="text-sm text-[var(--text-secondary)] mt-2">Selected file: <span className="font-medium text-[var(--text-primary)]">{selectedFileName}</span></div> )}
+                                            {fileContentForAnalysis && selectedFileName && fileLanguage ? (
+                                                <div>
+                                                    <div className="flex justify-between items-center mb-2">
+                                                        <label className="block text-sm font-medium text-[var(--text-secondary)]">File Preview</label>
+                                                        <button 
+                                                            onClick={() => { 
+                                                                setFileContentForAnalysis(null); 
+                                                                setSelectedFileName(null); 
+                                                                setFileLanguage(null); 
+                                                            }} 
+                                                            className="text-xs font-medium text-[var(--accent-primary)] hover:underline flex items-center gap-1"
+                                                        >
+                                                            <span className="material-icons-outlined text-sm">close</span>
+                                                            Change File
+                                                        </button>
+                                                    </div>
+                                                    <div className="bg-[var(--bg-primary)] rounded-lg border border-[var(--border-color)] overflow-hidden">
+                                                        <div className="px-3 py-1.5 bg-[var(--bg-tertiary)] border-b border-[var(--border-color)] text-xs text-[var(--text-muted)] font-mono truncate">{selectedFileName}</div>
+                                                        <div className="max-h-48 overflow-y-auto custom-scrollbar-small">
+                                                            <CodeBlock code={fileContentForAnalysis} language={fileLanguage} />
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <>
+                                                    <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1" htmlFor="fileUploadInputDashboard">Upload Your Code File</label>
+                                                    <div 
+                                                        className="border-2 border-dashed border-[var(--border-color)] rounded-lg p-6 flex flex-col items-center justify-center bg-[var(--bg-primary)] hover:border-[var(--accent-primary)] transition-colors duration-200 cursor-pointer min-h-[180px]"
+                                                        onClick={() => document.getElementById('fileUploadInputDashboard')?.click()}
+                                                        onDrop={handleDrop}
+                                                        onDragOver={handleDragOver}
+                                                        onDragLeave={handleDragLeave}
+                                                        role="button" tabIndex={0} aria-label="File upload drop zone"
+                                                        onKeyPress={(e) => { if (e.key === 'Enter' || e.key === ' ') document.getElementById('fileUploadInputDashboard')?.click(); }}
+                                                    >
+                                                        <span className="material-icons-outlined text-5xl text-[var(--text-muted)] mb-3">cloud_upload</span>
+                                                        <p className="text-[var(--text-secondary)] mb-1 text-center"><span className="font-semibold text-[var(--accent-primary)]">Click to choose file</span> or drag and drop</p>
+                                                        <p className="text-xs text-[var(--text-muted)] text-center">Max 5MB. Supported: PY, JAVA, JS, TS, HTML, CSS, etc.</p>
+                                                        <input className="hidden" id="fileUploadInputDashboard" type="file" onChange={handleFileChange} aria-hidden="true" accept={AcceptedFileExtensions}/>
+                                                    </div>
+                                                </>
+                                            )}
                                         </div>
                                     )}
+
 
                                     {activeInputType === 'image' && (
                                         <div className="space-y-4">
                                             <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1" htmlFor="imageUploadInputDashboard">Upload Image with Code</label>
                                             <div 
-                                                className="border-2 border-dashed border-[var(--border-color)] rounded-lg p-6 flex flex-col items-center justify-center bg-[var(--bg-primary)] hover:border-[var(--accent-primary)] transition-colors duration-200 cursor-pointer aspect-video"
+                                                className="border-2 border-dashed border-[var(--border-color)] rounded-lg p-4 flex flex-col items-center justify-center bg-[var(--bg-primary)] hover:border-[var(--accent-primary)] transition-colors duration-200 cursor-pointer min-h-[220px]"
                                                 onClick={() => document.getElementById('imageUploadInputDashboard')?.click()}
                                                 onDrop={handleImageDrop}
                                                 onDragOver={handleDragOver}
                                                 onDragLeave={handleDragLeave}
                                             >
                                                 {imagePreviewUrl ? (
-                                                    <img src={imagePreviewUrl} alt="Selected code preview" className="max-h-full max-w-full object-contain rounded-md" />
+                                                    <img src={imagePreviewUrl} alt="Selected code preview" className="max-h-[180px] w-auto object-contain rounded-md" />
                                                 ) : (
                                                     <>
                                                         <span className="material-icons-outlined text-5xl text-[var(--text-muted)] mb-3">add_photo_alternate</span>
@@ -481,21 +518,38 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ activities, onView
                                     {activeInputType === 'paste' && (
                                         <div className="space-y-4">
                                             <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1" htmlFor="codePasteArea">Paste Your Code</label>
-                                            <textarea className="w-full p-3 bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-md text-[var(--text-primary)] focus:ring-2 focus:ring-[var(--accent-primary)] focus:border-[var(--accent-primary)] placeholder-gray-500 min-h-[200px] custom-scrollbar-small font-mono text-sm" id="codePasteArea" placeholder="Paste your code snippet here..." value={pastedCode} onChange={(e) => setPastedCode(e.target.value)} aria-label="Paste code area"></textarea>
+                                            <textarea className="w-full p-3 bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-md text-[var(--text-primary)] focus:ring-2 focus:ring-[var(--accent-primary)] focus:border-[var(--accent-primary)] placeholder-gray-500 min-h-[180px] custom-scrollbar-small font-mono text-sm" id="codePasteArea" placeholder="Paste your code snippet here..." value={pastedCode} onChange={(e) => setPastedCode(e.target.value)} aria-label="Paste code area"></textarea>
                                         </div>
                                     )}
 
                                     {activeInputType === 'concept' && (
                                         <div className="space-y-4">
-                                            <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1" htmlFor="conceptInput">Describe the Concept</label>
-                                            <textarea className="w-full p-3 bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-md text-[var(--text-primary)] focus:ring-2 focus:ring-[var(--accent-primary)] focus:border-[var(--accent-primary)] placeholder-gray-500 min-h-[120px] custom-scrollbar-small" id="conceptInput" placeholder="e.g., 'Explain recursion in Python' or 'How do closures work in JavaScript?'" value={conceptDescription} onChange={(e) => setConceptDescription(e.target.value)} aria-label="Describe concept area"></textarea>
+                                            <div>
+                                                <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1" htmlFor="conceptInput">Describe the Concept</label>
+                                                <textarea className="w-full p-3 bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-md text-[var(--text-primary)] focus:ring-2 focus:ring-[var(--accent-primary)] focus:border-[var(--accent-primary)] placeholder-gray-500 min-h-[120px] custom-scrollbar-small" id="conceptInput" placeholder="e.g., 'Explain recursion in Python' or 'How do closures work in JavaScript?'" value={conceptDescription} onChange={(e) => setConceptDescription(e.target.value)} aria-label="Describe concept area"></textarea>
+                                            </div>
+                                            <div>
+                                                <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1" htmlFor="conceptLanguageSelect">Language Context</label>
+                                                <select 
+                                                    id="conceptLanguageSelect"
+                                                    value={conceptLanguage}
+                                                    onChange={(e) => setConceptLanguage(e.target.value as SupportedLanguage)}
+                                                    className="w-full p-3 bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-md text-[var(--text-primary)] focus:ring-2 focus:ring-[var(--accent-primary)] focus:border-[var(--accent-primary)] appearance-none bg-no-repeat bg-right-3"
+                                                    style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%239ca3af'%3E%3Cpath fill-rule='evenodd' d='M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z' clip-rule='evenodd' /%3E%3C/svg%3E")`, backgroundSize: '1.25em' }}
+                                                    aria-label="Select language for concept explanation"
+                                                >
+                                                    {languageOptions.map(opt => (
+                                                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                                    ))}
+                                                </select>
+                                            </div>
                                         </div>
                                     )}
 
                                     {activeInputType === 'debug' && (
                                         <div className="space-y-4">
                                             <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1" htmlFor="debugCodeArea">Paste Your Broken Code</label>
-                                            <textarea className="w-full p-3 bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-md text-[var(--text-primary)] focus:ring-2 focus:ring-[var(--accent-primary)] focus:border-[var(--accent-primary)] placeholder-gray-500 min-h-[200px] custom-scrollbar-small font-mono text-sm" id="debugCodeArea" placeholder="Paste your broken code snippet here..." value={debugCode} onChange={(e) => setDebugCode(e.target.value)} aria-label="Paste broken code area"></textarea>
+                                            <textarea className="w-full p-3 bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-md text-[var(--text-primary)] focus:ring-2 focus:ring-[var(--accent-primary)] focus:border-[var(--accent-primary)] placeholder-gray-500 min-h-[180px] custom-scrollbar-small font-mono text-sm" id="debugCodeArea" placeholder="Paste your broken code snippet here..." value={debugCode} onChange={(e) => setDebugCode(e.target.value)} aria-label="Paste broken code area"></textarea>
                                         </div>
                                     )}
 
@@ -503,9 +557,9 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ activities, onView
                                         <div className="space-y-4">
                                             <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1" htmlFor="projectUploadInputDashboard">Select Project Folder</label>
                                             <div 
-                                                className="border-2 border-dashed border-[var(--border-color)] rounded-lg p-6 flex flex-col items-center justify-center bg-[var(--bg-primary)] hover:border-[var(--accent-primary)] transition-colors duration-200 cursor-pointer"
+                                                className="border-2 border-dashed border-[var(--border-color)] rounded-lg p-6 flex flex-col items-center justify-center bg-[var(--bg-primary)] hover:border-[var(--accent-primary)] transition-colors duration-200 cursor-pointer min-h-[180px]"
                                                 onClick={() => document.getElementById('projectUploadInputDashboard')?.click()}
-                                                onDrop={(e) => { e.preventDefault(); toast.error('Please click to select a folder.');}}
+                                                onDrop={(e) => { e.preventDefault(); console.error('Please click to select a folder.');}}
                                                 onDragOver={(e) => e.preventDefault()}
                                                 role="button" tabIndex={0} aria-label="Project folder upload zone"
                                                 onKeyPress={(e) => { if (e.key === 'Enter' || e.key === ' ') document.getElementById('projectUploadInputDashboard')?.click(); }}
@@ -637,7 +691,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ activities, onView
                         </div>
                     </main>
 
-                    <footer className="bg-[var(--bg-secondary)] py-6 mt-auto border-t border-[var(--border-color)]">
+                    <footer className="bg-[var(--bg-secondary)] py-6 border-t border-[var(--border-color)] flex-shrink-0">
                         <div className="container mx-auto px-6 text-center">
                             <p className="text-xs text-[var(--text-muted)]">
                                 Powered by Advanced AI. Ensure API_KEY usage complies with security policies.
